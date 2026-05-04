@@ -62,14 +62,17 @@ final class GhosttyBridge {
         c.size = MemoryLayout<GhosttyRenderStateColors>.size
         colors = c
 
-        // Register XTWINOPS size query and pty-write callbacks
-        // (must be after all stored properties are initialized)
-        var userdata = Unmanaged.passUnretained(self).toOpaque()
-        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, &userdata)
-        var sizeFn: GhosttyTerminalSizeFn = ghosttySizeCallback
-        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SIZE, &sizeFn)
-        var writeFn: GhosttyTerminalWritePtyFn = ghosttyWritePtyCallback
-        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, &writeFn)
+        // Register XTWINOPS size query and pty-write callbacks.
+        // ghostty_terminal_set takes the VALUE as void*, not a pointer to it —
+        // the Zig side does @ptrCast(value) directly into the function pointer field.
+        // For function callbacks: unsafeBitCast the fn ptr to UnsafeRawPointer?.
+        // For userdata: pass the opaque pointer directly.
+        let userdataPtr = Unmanaged.passUnretained(self).toOpaque()
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, userdataPtr)
+        let sizeFn: GhosttyTerminalSizeFn = ghosttySizeCallback
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SIZE, unsafeBitCast(sizeFn, to: UnsafeRawPointer?.self))
+        let writeFn: GhosttyTerminalWritePtyFn = ghosttyWritePtyCallback
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, unsafeBitCast(writeFn, to: UnsafeRawPointer?.self))
     }
 
     deinit {
