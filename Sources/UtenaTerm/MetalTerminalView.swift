@@ -1,0 +1,91 @@
+import AppKit
+import MetalKit
+import GhosttyVt
+
+final class MetalTerminalView: MTKView {
+    var bridge: GhosttyBridge!
+    var onInput: ((Data) -> Void)?
+    var onResize: ((UInt16, UInt16) -> Void)?
+    var onFocus: (() -> Void)?
+    var isActive: Bool = false { didSet { setNeedsDisplay(bounds) } }
+
+    let font: CTFont
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var cellAscent: CGFloat = 0
+    var renderer: TerminalRenderer?
+
+    override init(frame: NSRect, device: MTLDevice?) {
+        font = CTFontCreateWithName("Menlo" as CFString, 13, nil)
+        super.init(frame: frame, device: device)
+        computeCellMetrics()
+        isPaused = true
+        enableSetNeedsDisplay = true
+        colorPixelFormat = .bgra8Unorm
+        clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    private func computeCellMetrics() {
+        let ascent = CTFontGetAscent(font)
+        let descent = CTFontGetDescent(font)
+        let leading = CTFontGetLeading(font)
+        cellAscent = ascent
+        cellHeight = ascent + descent + leading
+        var glyph: CGGlyph = 0
+        var ch: UniChar = UniChar(UInt8(ascii: "M"))
+        CTFontGetGlyphsForCharacters(font, &ch, &glyph, 1)
+        var advance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
+        cellWidth = advance.width
+    }
+
+    var gridCols: UInt16 { UInt16(max(1, Int(bounds.width / cellWidth))) }
+    var gridRows: UInt16 { UInt16(max(1, Int(bounds.height / cellHeight))) }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
+        bridge?.resize(cols: gridCols, rows: gridRows)
+        onResize?(gridCols, gridRows)
+        setNeedsDisplay(bounds)
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+    override func becomeFirstResponder() -> Bool {
+        let r = super.becomeFirstResponder()
+        if r { onFocus?() }
+        return r
+    }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let key = KeyMap.ghosttyKey(for: event.keyCode)
+        let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
+        var text: String? = event.characters
+        if event.modifierFlags.contains(.option) {
+            text = nil
+        } else if let t = text {
+            let allPrintable = t.unicodeScalars.allSatisfy { v in
+                let c = v.value
+                return c > 0x001F && c != 0x007F && !(c >= 0xF700 && c <= 0xF8FF)
+            }
+            if !allPrintable { text = nil }
+        }
+        if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
+            onInput?(bytes)
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let deltaRows = Int(event.scrollingDeltaY / cellHeight)
+        if deltaRows != 0 {
+            bridge.scroll(delta: deltaRows)
+            setNeedsDisplay(bounds)
+        }
+    }
+}
