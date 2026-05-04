@@ -16,7 +16,7 @@ final class MetalTerminalView: MTKView {
     var renderer: TerminalRenderer?
 
     override init(frame: NSRect, device: MTLDevice?) {
-        font = CTFontCreateWithName("Menlo" as CFString, 14, nil)
+        font = CTFontCreateWithName("SF Mono" as CFString, 14, nil)
         super.init(frame: frame, device: device)
         computeCellMetrics()
         isPaused = true
