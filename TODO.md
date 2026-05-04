@@ -1,0 +1,2 @@
+- Fix kitty image display sizes / content flowing around them
+- fix transparency for kitty images (double check that sylveon png actually has transparency first and not just a fake bg)
