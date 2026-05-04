@@ -68,7 +68,10 @@ final class MetalTerminalView: MTKView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
-        bridge?.resize(cols: gridCols, rows: gridRows)
+        let scale = backingScale
+        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
+        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
         let pxW = UInt16(max(1, Int(newSize.width)))
         let pxH = UInt16(max(1, Int(newSize.height)))
         onResize?(gridCols, gridRows, pxW, pxH)

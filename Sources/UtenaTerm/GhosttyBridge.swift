@@ -92,8 +92,8 @@ final class GhosttyBridge {
         ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal)
     }
 
-    func resize(cols: UInt16, rows: UInt16) {
-        _ = ghostty_terminal_resize(terminal, cols, rows, 0, 0)
+    func resize(cols: UInt16, rows: UInt16, cellWidthPx: UInt32 = 0, cellHeightPx: UInt32 = 0) {
+        _ = ghostty_terminal_resize(terminal, cols, rows, cellWidthPx, cellHeightPx)
         _ = ghostty_render_state_update(renderState, terminal)
     }
 

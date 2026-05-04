@@ -36,7 +36,10 @@ final class TerminalPane {
     }
 
     func resize(cols: UInt16, rows: UInt16) {
-        bridge.resize(cols: cols, rows: rows)
+        let scale = view.backingScale
+        let cwPx = UInt32(max(1, Int(round(view.cellWidth * scale))))
+        let chPx = UInt32(max(1, Int(round(view.cellHeight * scale))))
+        bridge.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
         let pw = UInt16(max(1, Int(view.cellWidth * CGFloat(cols))))
         let ph = UInt16(max(1, Int(view.cellHeight * CGFloat(rows))))
         pty.resize(cols: cols, rows: rows, pixelWidth: pw, pixelHeight: ph)
