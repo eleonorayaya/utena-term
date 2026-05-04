@@ -145,6 +145,8 @@ final class GlyphAtlas {
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
             ) else { return nil }
+            ctx.setShouldSubpixelPositionFonts(false)
+            ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: 0, y: cellDescent)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
@@ -171,6 +173,8 @@ final class GlyphAtlas {
                 space: CGColorSpaceCreateDeviceGray(),
                 bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
             ) else { return nil }
+            ctx.setShouldSubpixelPositionFonts(false)
+            ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: 0, y: cellDescent)
