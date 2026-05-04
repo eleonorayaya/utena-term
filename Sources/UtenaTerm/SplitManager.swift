@@ -104,12 +104,10 @@ final class SplitManager {
             switch node {
             case .leaf: return nil
             case .branch(_, let l, let r):
-                if l.contains(pane: target) {
-                    return r.leaves().first
-                } else if r.contains(pane: target) {
-                    return l.leaves().last
-                }
-                return find(l) ?? find(r)
+                if let deeper = find(l) ?? find(r) { return deeper }
+                if l.contains(pane: target) { return r.leaves().first }
+                if r.contains(pane: target) { return l.leaves().last }
+                return nil
             }
         }
         return find(root)
