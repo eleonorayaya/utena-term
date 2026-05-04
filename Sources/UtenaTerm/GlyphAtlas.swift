@@ -17,6 +17,11 @@ final class GlyphAtlas {
     let font: CTFont
     let backingScale: CGFloat
 
+    let cellAscent: CGFloat
+    let cellDescent: CGFloat
+    let cellHeight: CGFloat
+    let cellWidth: CGFloat
+
     private struct ShelfPacker {
         var shelfX = 0
         var shelfY = 0
@@ -51,6 +56,17 @@ final class GlyphAtlas {
         self.device = device
         self.font = font
         self.backingScale = backingScale
+
+        cellAscent = CTFontGetAscent(font)
+        cellDescent = CTFontGetDescent(font)
+        let leading = CTFontGetLeading(font)
+        cellHeight = ceil(cellAscent + cellDescent + leading)
+        var mGlyph: CGGlyph = 0
+        var mChar: UniChar = UniChar(UInt8(ascii: "M"))
+        CTFontGetGlyphsForCharacters(font, &mChar, &mGlyph, 1)
+        var mAdvance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &mGlyph, &mAdvance, 1)
+        cellWidth = mAdvance.width
 
         let sz = GlyphAtlas.atlasSize
         let gd = MTLTextureDescriptor.texture2DDescriptor(
@@ -112,12 +128,13 @@ final class GlyphAtlas {
 
     private func rasterizeCore(glyph: CGGlyph, glyphFont: CTFont, color: Bool) -> AtlasEntry? {
         var g = glyph
-        let bbox = CTFontGetBoundingRectsForGlyphs(glyphFont, .horizontal, &g, nil, 1)
+        var advance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(glyphFont, .horizontal, &g, &advance, 1)
         let scale = backingScale
-        let pointW = max(1, Int(ceil(bbox.width)) + 2)
-        let pointH = max(1, Int(ceil(bbox.height)) + 2)
-        let pixelW = Int(ceil(CGFloat(pointW) * scale))
-        let pixelH = Int(ceil(CGFloat(pointH) * scale))
+        let pointW = max(1, Int(ceil(advance.width)))
+        let pointH = max(1, Int(ceil(cellHeight)))
+        let pixelW = max(1, Int(ceil(CGFloat(pointW) * scale)))
+        let pixelH = max(1, Int(ceil(CGFloat(pointH) * scale)))
         let s = Self.atlasSize
 
         if color {
@@ -129,7 +146,7 @@ final class GlyphAtlas {
                 bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
             ) else { return nil }
             ctx.scaleBy(x: scale, y: scale)
-            ctx.translateBy(x: -bbox.minX + 1, y: -bbox.minY + 1)
+            ctx.translateBy(x: 0, y: cellDescent)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocColorSlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
@@ -156,7 +173,7 @@ final class GlyphAtlas {
             ) else { return nil }
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.scaleBy(x: scale, y: scale)
-            ctx.translateBy(x: -bbox.minX + 1, y: -bbox.minY + 1)
+            ctx.translateBy(x: 0, y: cellDescent)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocGraySlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot

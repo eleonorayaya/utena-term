@@ -370,9 +370,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     let cellX = CGFloat(col) * cw
                     if let rowGlyph = rowGlyphs[col] {
                         let entry = rowGlyph.entry
-                        let glyphY = savedRowY + (ch - CGFloat(entry.pointHeight)) / 2
                         emitQuad(
-                            x: cellX, y: glyphY,
+                            x: cellX, y: savedRowY,
                             w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
                             u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
                             color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
