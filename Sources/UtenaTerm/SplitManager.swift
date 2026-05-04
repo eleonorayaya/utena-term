@@ -35,7 +35,6 @@ final class SplitManager {
             splitView.addArrangedSubview(newPane.view)
             sv.insertArrangedSubview(splitView, at: idx)
         } else {
-            // root replacement
             parentView.replaceSubview(existingView, with: splitView)
             splitView.addArrangedSubview(existingView)
             splitView.addArrangedSubview(newPane.view)
@@ -59,7 +58,7 @@ final class SplitManager {
         guard let splitView = paneView.superview as? NSSplitView else { return }
         let siblingView = sibling.view
 
-        let grandparent = splitView.superview!
+        guard let grandparent = splitView.superview else { return }
         splitView.removeArrangedSubview(paneView)
         splitView.removeArrangedSubview(siblingView)
         siblingView.frame = splitView.frame

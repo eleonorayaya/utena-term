@@ -2,6 +2,13 @@ import AppKit
 import GhosttyVt
 
 enum KeyMap {
+    enum Key {
+        static let d: UInt16            = 0x02
+        static let w: UInt16            = 0x0D
+        static let leftBracket: UInt16  = 0x21
+        static let rightBracket: UInt16 = 0x1E
+    }
+
     static func ghosttyKey(for keyCode: UInt16) -> GhosttyKey {
         switch keyCode {
         case 0x00: return GHOSTTY_KEY_A

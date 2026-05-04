@@ -15,11 +15,11 @@ final class TerminalWindow: NSWindow {
         if event.type == .keyDown, !event.isARepeat, event.modifierFlags.contains(.command) {
             let shift = event.modifierFlags.contains(.shift)
             switch event.keyCode {
-            case 2 where !shift: splitDelegate?.terminalWindowSplitVertical(); return   // D
-            case 2 where shift:  splitDelegate?.terminalWindowSplitHorizontal(); return // Shift+D
-            case 33:             splitDelegate?.terminalWindowFocusPrev(); return       // [
-            case 30:             splitDelegate?.terminalWindowFocusNext(); return       // ]
-            case 13:             splitDelegate?.terminalWindowClosePane(); return       // W
+            case KeyMap.Key.d where !shift: splitDelegate?.terminalWindowSplitVertical(); return
+            case KeyMap.Key.d where shift:  splitDelegate?.terminalWindowSplitHorizontal(); return
+            case KeyMap.Key.leftBracket:    splitDelegate?.terminalWindowFocusPrev(); return
+            case KeyMap.Key.rightBracket:   splitDelegate?.terminalWindowFocusNext(); return
+            case KeyMap.Key.w:              splitDelegate?.terminalWindowClosePane(); return
             default: break
             }
         }

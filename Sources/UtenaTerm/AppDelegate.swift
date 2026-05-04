@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: .ptyDidClose, object: nil)
+    }
 }
 
 extension AppDelegate: TerminalWindowDelegate {
