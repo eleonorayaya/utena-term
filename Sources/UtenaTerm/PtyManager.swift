@@ -14,7 +14,7 @@ final class PtyManager {
     private var masterFd: Int32 = -1
     private var childPid: pid_t = 0
 
-    func start(cols: UInt16, rows: UInt16) {
+    func start(cols: UInt16, rows: UInt16, pixelWidth: UInt16 = 0, pixelHeight: UInt16 = 0) {
         let master = posix_openpt(O_RDWR | O_NOCTTY)
         precondition(master >= 0, "posix_openpt failed")
         _ = grantpt(master)
@@ -24,7 +24,7 @@ final class PtyManager {
         let slave = open(slaveName, O_RDWR)
         precondition(slave >= 0, "open slave pty failed")
 
-        var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
+        var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: pixelWidth, ws_ypixel: pixelHeight)
         _ = ioctl(master, TIOCSWINSZ_REQ, &ws)
 
         let env = ProcessInfo.processInfo.environment
@@ -74,9 +74,9 @@ final class PtyManager {
         t.start()
     }
 
-    func resize(cols: UInt16, rows: UInt16) {
+    func resize(cols: UInt16, rows: UInt16, pixelWidth: UInt16 = 0, pixelHeight: UInt16 = 0) {
         guard masterFd >= 0 else { return }
-        var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
+        var ws = winsize(ws_row: rows, ws_col: cols, ws_xpixel: pixelWidth, ws_ypixel: pixelHeight)
         _ = ioctl(masterFd, TIOCSWINSZ_REQ, &ws)
     }
 

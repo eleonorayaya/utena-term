@@ -66,13 +66,9 @@ final class GhosttyBridge {
         // (must be after all stored properties are initialized)
         var userdata = Unmanaged.passUnretained(self).toOpaque()
         _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, &userdata)
-        var sizeFn: GhosttyTerminalSizeFn = { (term, ud, outSize) in
-            ghosttySizeCallback(term, ud, outSize)
-        }
+        var sizeFn: GhosttyTerminalSizeFn = ghosttySizeCallback
         _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SIZE, &sizeFn)
-        var writeFn: GhosttyTerminalWritePtyFn = { (term, ud, data, len) in
-            ghosttyWritePtyCallback(term, ud, data, len)
-        }
+        var writeFn: GhosttyTerminalWritePtyFn = ghosttyWritePtyCallback
         _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, &writeFn)
     }
 

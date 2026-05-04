@@ -5,7 +5,7 @@ import GhosttyVt
 final class MetalTerminalView: MTKView {
     var bridge: GhosttyBridge!
     var onInput: ((Data) -> Void)?
-    var onResize: ((UInt16, UInt16) -> Void)?
+    var onResize: ((UInt16, UInt16, UInt16, UInt16) -> Void)?
     var onFocus: (() -> Void)?
     var isActive: Bool = false { didSet { setNeedsDisplay(bounds) } }
 
@@ -69,7 +69,9 @@ final class MetalTerminalView: MTKView {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
         bridge?.resize(cols: gridCols, rows: gridRows)
-        onResize?(gridCols, gridRows)
+        let pxW = UInt16(max(1, Int(newSize.width)))
+        let pxH = UInt16(max(1, Int(newSize.height)))
+        onResize?(gridCols, gridRows, pxW, pxH)
         setNeedsDisplay(bounds)
     }
 

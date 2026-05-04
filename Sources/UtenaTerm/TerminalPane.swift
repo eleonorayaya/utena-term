@@ -26,12 +26,16 @@ final class TerminalPane {
             self.view.setNeedsDisplay(self.view.bounds)
         }
         view.onInput = { [weak self] data in self?.pty.write(data) }
-        view.onResize = { [weak self] cols, rows in self?.pty.resize(cols: cols, rows: rows) }
-        pty.start(cols: cols, rows: rows)
+        view.onResize = { [weak self] cols, rows, pw, ph in self?.pty.resize(cols: cols, rows: rows, pixelWidth: pw, pixelHeight: ph) }
+        let initPxW = UInt16(max(1, Int(view.cellWidth * CGFloat(cols))))
+        let initPxH = UInt16(max(1, Int(view.cellHeight * CGFloat(rows))))
+        pty.start(cols: cols, rows: rows, pixelWidth: initPxW, pixelHeight: initPxH)
     }
 
     func resize(cols: UInt16, rows: UInt16) {
         bridge.resize(cols: cols, rows: rows)
-        pty.resize(cols: cols, rows: rows)
+        let pw = UInt16(max(1, Int(view.cellWidth * CGFloat(cols))))
+        let ph = UInt16(max(1, Int(view.cellHeight * CGFloat(rows))))
+        pty.resize(cols: cols, rows: rows, pixelWidth: pw, pixelHeight: ph)
     }
 }
