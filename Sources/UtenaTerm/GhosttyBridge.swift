@@ -1,0 +1,174 @@
+import Foundation
+import GhosttyVt
+
+struct CursorState {
+    var x: UInt16
+    var y: UInt16
+    var style: GhosttyRenderStateCursorVisualStyle
+}
+
+final class GhosttyBridge {
+    private var terminal: GhosttyTerminal
+    private var renderState: GhosttyRenderState
+    private var keyEncoder: GhosttyKeyEncoder
+    private var keyEvent: GhosttyKeyEvent
+    private(set) var colors: GhosttyRenderStateColors
+
+    init(cols: UInt16, rows: UInt16, maxScrollback: Int = 10_000) throws {
+        let opts = GhosttyTerminalOptions(cols: cols, rows: rows, max_scrollback: maxScrollback)
+        var term: GhosttyTerminal?
+        guard ghostty_terminal_new(nil, &term, opts) == GHOSTTY_SUCCESS, let term else {
+            throw BridgeError.initFailed("terminal")
+        }
+        terminal = term
+
+        var rs: GhosttyRenderState?
+        guard ghostty_render_state_new(nil, &rs) == GHOSTTY_SUCCESS, let rs else {
+            ghostty_terminal_free(term)
+            throw BridgeError.initFailed("render_state")
+        }
+        renderState = rs
+
+        var enc: GhosttyKeyEncoder?
+        guard ghostty_key_encoder_new(nil, &enc) == GHOSTTY_SUCCESS, let enc else {
+            ghostty_render_state_free(rs)
+            ghostty_terminal_free(term)
+            throw BridgeError.initFailed("key_encoder")
+        }
+        keyEncoder = enc
+
+        var ev: GhosttyKeyEvent?
+        guard ghostty_key_event_new(nil, &ev) == GHOSTTY_SUCCESS, let ev else {
+            ghostty_key_encoder_free(enc)
+            ghostty_render_state_free(rs)
+            ghostty_terminal_free(term)
+            throw BridgeError.initFailed("key_event")
+        }
+        keyEvent = ev
+
+        var c = GhosttyRenderStateColors()
+        c.size = MemoryLayout<GhosttyRenderStateColors>.size
+        colors = c
+    }
+
+    deinit {
+        ghostty_key_event_free(keyEvent)
+        ghostty_key_encoder_free(keyEncoder)
+        ghostty_render_state_free(renderState)
+        ghostty_terminal_free(terminal)
+    }
+
+    func write(_ data: Data) {
+        data.withUnsafeBytes { buf in
+            guard let ptr = buf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            ghostty_terminal_vt_write(terminal, ptr, buf.count)
+        }
+        ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal)
+    }
+
+    func resize(cols: UInt16, rows: UInt16) {
+        _ = ghostty_terminal_resize(terminal, cols, rows, 0, 0)
+        _ = ghostty_render_state_update(renderState, terminal)
+    }
+
+    @discardableResult
+    func updateRenderState() -> Bool {
+        _ = ghostty_render_state_update(renderState, terminal)
+
+        var dirty = GHOSTTY_RENDER_STATE_DIRTY_FALSE
+        _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty)
+
+        colors.size = MemoryLayout<GhosttyRenderStateColors>.size
+        _ = ghostty_render_state_colors_get(renderState, &colors)
+
+        return dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE
+    }
+
+    func clearDirty() {
+        var dirty = GHOSTTY_RENDER_STATE_DIRTY_FALSE
+        _ = ghostty_render_state_set(renderState, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &dirty)
+    }
+
+    func withRowIterator(_ body: (GhosttyRenderStateRowIterator, GhosttyRenderStateRowCells) -> Void) {
+        var iter: GhosttyRenderStateRowIterator?
+        guard ghostty_render_state_row_iterator_new(nil, &iter) == GHOSTTY_SUCCESS, let iterHandle = iter else { return }
+        defer { ghostty_render_state_row_iterator_free(iterHandle) }
+
+        var cells: GhosttyRenderStateRowCells?
+        guard ghostty_render_state_row_cells_new(nil, &cells) == GHOSTTY_SUCCESS, let cellsHandle = cells else { return }
+        defer { ghostty_render_state_row_cells_free(cellsHandle) }
+
+        // Pass &iter (pointer to the optional handle) so C can populate the iterator's
+        // internal row state — not the handle value, which would write to garbage memory.
+        withUnsafeMutablePointer(to: &iter) { ptr in
+            _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, UnsafeMutableRawPointer(ptr))
+        }
+
+        body(iterHandle, cellsHandle)
+    }
+
+    func cursorState() -> CursorState? {
+        var visible: Bool = false
+        var inViewport: Bool = false
+        var x: UInt16 = 0
+        var y: UInt16 = 0
+        var style = GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK
+
+        guard ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &visible) == GHOSTTY_SUCCESS else { return nil }
+        _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &inViewport)
+        guard visible, inViewport else { return nil }
+        _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &x)
+        _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &y)
+        _ = ghostty_render_state_get(renderState, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE, &style)
+
+        return CursorState(x: x, y: y, style: style)
+    }
+
+    func encode(
+        key: GhosttyKey,
+        mods: GhosttyMods,
+        action: GhosttyKeyAction,
+        utf8text: String?
+    ) -> Data? {
+        ghostty_key_event_set_action(keyEvent, action)
+        ghostty_key_event_set_key(keyEvent, key)
+        ghostty_key_event_set_mods(keyEvent, mods)
+
+        let bufferCapacity = 128
+        var buf = [UInt8](repeating: 0, count: bufferCapacity)
+        var written: Int = 0
+
+        let result: GhosttyResult
+        if let text = utf8text {
+            result = text.withCString { ptr in
+                ghostty_key_event_set_utf8(keyEvent, ptr, text.utf8.count)
+                return buf.withUnsafeMutableBufferPointer { bufPtr in
+                    let charPtr = bufPtr.baseAddress.map { UnsafeMutablePointer<CChar>(OpaquePointer($0)) }
+                    return ghostty_key_encoder_encode(keyEncoder, keyEvent, charPtr, bufferCapacity, &written)
+                }
+            }
+        } else {
+            ghostty_key_event_set_utf8(keyEvent, nil, 0)
+            result = buf.withUnsafeMutableBufferPointer { bufPtr in
+                let charPtr = bufPtr.baseAddress.map { UnsafeMutablePointer<CChar>(OpaquePointer($0)) }
+                return ghostty_key_encoder_encode(keyEncoder, keyEvent, charPtr, bufferCapacity, &written)
+            }
+        }
+
+        guard result == GHOSTTY_SUCCESS, written > 0 else { return nil }
+        return Data(buf[..<written])
+    }
+
+    func scroll(delta: Int) {
+        let value = GhosttyTerminalScrollViewportValue(delta: delta)
+        let behavior = GhosttyTerminalScrollViewport(
+            tag: GHOSTTY_SCROLL_VIEWPORT_DELTA,
+            value: value
+        )
+        ghostty_terminal_scroll_viewport(terminal, behavior)
+    }
+
+    enum BridgeError: Error {
+        case initFailed(String)
+    }
+}
