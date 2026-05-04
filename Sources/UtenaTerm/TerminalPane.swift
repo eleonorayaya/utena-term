@@ -15,7 +15,8 @@ final class TerminalPane {
             self.bridge.write(data)
             self.view.needsDisplay = true
         }
-        view.pty = pty
+        view.onInput = { [weak self] data in self?.pty.write(data) }
+        view.onResize = { [weak self] cols, rows in self?.pty.resize(cols: cols, rows: rows) }
         pty.start(cols: cols, rows: rows)
     }
 

@@ -4,7 +4,8 @@ import GhosttyVt
 
 final class TerminalView: NSView {
     var bridge: GhosttyBridge!
-    var pty: PtyManager!
+    var onInput: ((Data) -> Void)?
+    var onResize: ((UInt16, UInt16) -> Void)?
 
     private var font: CTFont
     var cellWidth: CGFloat = 0
@@ -49,7 +50,7 @@ final class TerminalView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         bridge?.resize(cols: gridCols, rows: gridRows)
-        pty?.resize(cols: gridCols, rows: gridRows)
+        onResize?(gridCols, gridRows)
         needsDisplay = true
     }
 
@@ -211,7 +212,7 @@ final class TerminalView: NSView {
         let utf8text = text
 
         if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: utf8text) {
-            pty.write(bytes)
+            onInput?(bytes)
         }
     }
 
@@ -221,6 +222,19 @@ final class TerminalView: NSView {
             bridge.scroll(delta: deltaRows)
             needsDisplay = true
         }
+    }
+
+    var onFocus: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { onFocus?() }
+        return result
     }
 
     var isActive: Bool = false {
