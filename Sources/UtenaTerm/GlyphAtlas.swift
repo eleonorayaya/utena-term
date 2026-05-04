@@ -117,16 +117,38 @@ final class GlyphAtlas {
         var glyph: CGGlyph = 0
         var ch = Array(String(us).utf16)
         guard CTFontGetGlyphsForCharacters(font, &ch, &glyph, ch.count), glyph != 0 else { return nil }
-        guard let entry = rasterizeCore(glyph: glyph, glyphFont: font, color: color) else { return nil }
+        let icon = isIconScalar(scalar)
+        guard let entry = rasterizeCore(glyph: glyph, glyphFont: font, color: color, isIcon: icon) else { return nil }
         if color { colorCache[scalar] = entry } else { grayCache[scalar] = entry }
         return entry
     }
 
-    func rasterize(glyph: CGGlyph, glyphFont: CTFont, color: Bool) -> AtlasEntry? {
-        rasterizeCore(glyph: glyph, glyphFont: glyphFont, color: color)
+    func rasterize(glyph: CGGlyph, glyphFont: CTFont, color: Bool, isIcon: Bool = false) -> AtlasEntry? {
+        rasterizeCore(glyph: glyph, glyphFont: glyphFont, color: color, isIcon: isIcon)
     }
 
-    private func rasterizeCore(glyph: CGGlyph, glyphFont: CTFont, color: Bool) -> AtlasEntry? {
+    // True for Nerd Font / Powerline / icon ranges in the Unicode Private Use Areas.
+    private func isIconScalar(_ scalar: UInt32) -> Bool {
+        return (0xE000...0xF8FF).contains(scalar) ||
+               (0xF0000...0xFFFFD).contains(scalar) ||
+               (0x100000...0x10FFFD).contains(scalar)
+    }
+
+    // Compute uniform scale + translation to center the glyph bounding box within the cell.
+    // Returns coordinates in the font's natural (point) space, before the retina scale is applied.
+    // The 0.92 factor leaves ~8% margin so adjacent icons don't visually touch each other.
+    private func iconFitTransform(glyph: CGGlyph, glyphFont: CTFont, cellW: CGFloat, cellH: CGFloat) -> (scale: CGFloat, tx: CGFloat, ty: CGFloat) {
+        var g = glyph
+        var bbox = CGRect.zero
+        CTFontGetBoundingRectsForGlyphs(glyphFont, .horizontal, &g, &bbox, 1)
+        guard bbox.width > 0, bbox.height > 0 else { return (1, 0, 0) }
+        let s = min(cellW / bbox.width, cellH / bbox.height) * 0.92
+        let tx = (cellW - bbox.width * s) / 2 - bbox.minX * s
+        let ty = (cellH - bbox.height * s) / 2 - bbox.minY * s
+        return (s, tx, ty)
+    }
+
+    private func rasterizeCore(glyph: CGGlyph, glyphFont: CTFont, color: Bool, isIcon: Bool = false) -> AtlasEntry? {
         var g = glyph
         var advance = CGSize.zero
         CTFontGetAdvancesForGlyphs(glyphFont, .horizontal, &g, &advance, 1)
@@ -148,7 +170,13 @@ final class GlyphAtlas {
             ctx.setShouldSubpixelPositionFonts(false)
             ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.scaleBy(x: scale, y: scale)
-            ctx.translateBy(x: 0, y: cellDescent)
+            if isIcon {
+                let fit = iconFitTransform(glyph: g, glyphFont: glyphFont, cellW: CGFloat(pointW), cellH: cellHeight)
+                ctx.translateBy(x: fit.tx, y: fit.ty)
+                ctx.scaleBy(x: fit.scale, y: fit.scale)
+            } else {
+                ctx.translateBy(x: 0, y: cellDescent)
+            }
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocColorSlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
@@ -177,7 +205,13 @@ final class GlyphAtlas {
             ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.scaleBy(x: scale, y: scale)
-            ctx.translateBy(x: 0, y: cellDescent)
+            if isIcon {
+                let fit = iconFitTransform(glyph: g, glyphFont: glyphFont, cellW: CGFloat(pointW), cellH: cellHeight)
+                ctx.translateBy(x: fit.tx, y: fit.ty)
+                ctx.scaleBy(x: fit.scale, y: fit.scale)
+            } else {
+                ctx.translateBy(x: 0, y: cellDescent)
+            }
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocGraySlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
@@ -228,13 +262,15 @@ final class GlyphAtlas {
         let line = CTLineCreateWithAttributedString(attrStr)
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
 
-        // Build UTF-16 offset → column mapping
+        // Build UTF-16 offset → column mapping and column → scalar mapping
         var charToCol: [Int: Int] = [:]
+        var colToScalar: [Int: UInt32] = [:]
         var utf16Offset = 0
         var col = 0
         for scalar in text.unicodeScalars {
             let utf16len = scalar.utf16.count
             charToCol[utf16Offset] = col
+            colToScalar[col] = scalar.value
             if utf16len == 2 {
                 charToCol[utf16Offset + 1] = col  // surrogate pair second unit
             }
@@ -269,20 +305,24 @@ final class GlyphAtlas {
                 let strIdx = Int(scratchIndices[i])
                 guard let glyphCol = charToCol[strIdx] else { continue }
 
+                let scalar = colToScalar[glyphCol]
+                let isIcon = scalar.map(isIconScalar) ?? false
                 let isColor = CTFontCreatePathForGlyph(runFont, glyph, nil) == nil
-                let cacheKey = UInt32(glyph) | (isColor ? 0x8000_0000 : 0)
+                // 0x4000_0000 differentiates icon-fit rasterizations from normal ones in the cache,
+                // since the same glyph index can produce different bitmaps depending on the transform.
+                let cacheKey = UInt32(glyph) | (isColor ? 0x8000_0000 : 0) | (isIcon ? 0x4000_0000 : 0)
 
                 let entry: AtlasEntry
                 if isColor {
                     if let e = colorCache[cacheKey] {
                         entry = e
-                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: true) {
+                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: true, isIcon: isIcon) {
                         colorCache[cacheKey] = e; entry = e
                     } else { continue }
                 } else {
                     if let e = grayCache[cacheKey] {
                         entry = e
-                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: false) {
+                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: false, isIcon: isIcon) {
                         grayCache[cacheKey] = e; entry = e
                     } else { continue }
                 }
