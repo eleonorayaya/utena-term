@@ -71,6 +71,14 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     private var atlas: GlyphAtlas!
     private var kittyCache: KittyTextureCache!
 
+    // Scratch buffers for the row loop — hoisted to avoid per-frame heap allocations
+    private struct CellInfo {
+        var fgVec: SIMD4<Float>
+        var bgVec: SIMD4<Float>?
+    }
+    private var cellInfos: [CellInfo] = []
+    private var rowText = ""
+
     init(device: MTLDevice, view: MetalTerminalView) {
         self.device = device
         self.termView = view
@@ -147,7 +155,12 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         let tr = QuadVertex(position: .init(x1, y1), uv: .init(u1, v0), color: color, mode: mode)
         let bl = QuadVertex(position: .init(x0, y0), uv: .init(u0, v1), color: color, mode: mode)
         let br = QuadVertex(position: .init(x1, y0), uv: .init(u1, v1), color: color, mode: mode)
-        vertices += [tl, tr, bl, tr, br, bl]
+        vertices.append(tl)
+        vertices.append(tr)
+        vertices.append(bl)
+        vertices.append(tr)
+        vertices.append(br)
+        vertices.append(bl)
     }
 
     // MARK: - Color resolver
@@ -298,12 +311,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                 }
                 let rowY = vpH - CGFloat(rowIndex + 1) * ch
 
-                struct CellInfo {
-                    var fgVec: SIMD4<Float>
-                    var bgVec: SIMD4<Float>?
-                }
-                var cellInfos: [CellInfo] = []
-                var rowText = ""
+                cellInfos.removeAll(keepingCapacity: true)
+                rowText.removeAll(keepingCapacity: true)
 
                 while ghostty_render_state_row_cells_next(cells) {
                     var graphemeLen: UInt32 = 0

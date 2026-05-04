@@ -14,12 +14,12 @@ final class KittyTextureCache {
         graphics: GhosttyKittyGraphics
     ) -> MTLTexture? {
         // Check eviction if cached
-        if cache[imageID] != nil {
+        if let tex = cache[imageID] {
             if ghostty_kitty_graphics_image(graphics, imageID) == nil {
                 cache.removeValue(forKey: imageID)
                 return nil
             }
-            return cache[imageID]
+            return tex
         }
 
         guard let image = ghostty_kitty_graphics_image(graphics, imageID) else { return nil }

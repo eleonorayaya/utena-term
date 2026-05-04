@@ -70,12 +70,12 @@ final class GlyphAtlas {
     }
 
     func entry(for scalar: UInt32) -> (AtlasEntry, Bool)? {
+        if let e = grayCache[scalar] { return (e, false) }
+        if let e = colorCache[scalar] { return (e, true) }
         let isColor = isColorGlyph(scalar)
         if isColor {
-            if let e = colorCache[scalar] { return (e, true) }
             return rasterizeColor(scalar).map { ($0, true) }
         } else {
-            if let e = grayCache[scalar] { return (e, false) }
             return rasterizeGray(scalar).map { ($0, false) }
         }
     }
@@ -205,6 +205,11 @@ final class GlyphAtlas {
 
     private var rowCache: [String: [Int: RowGlyph]] = [:]
 
+    // Scratch buffers for layoutRow — hoisted to avoid per-frame heap allocations
+    private var scratchGlyphs: [CGGlyph] = []
+    private var scratchAdvances: [CGSize] = []
+    private var scratchIndices: [CFIndex] = []
+
     /// Layout an entire terminal row using CoreText.
     /// - Parameter text: The row string; one Unicode scalar per cell, spaces for empty cells.
     /// - Parameter cellWidth: The nominal pixel width of one cell.
@@ -235,12 +240,12 @@ final class GlyphAtlas {
         for run in runs {
             let count = CTRunGetGlyphCount(run)
             guard count > 0 else { continue }
-            var glyphs = [CGGlyph](repeating: 0, count: count)
-            var advances = [CGSize](repeating: .zero, count: count)
-            var indices = [CFIndex](repeating: 0, count: count)
-            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &glyphs)
-            CTRunGetAdvances(run, CFRange(location: 0, length: count), &advances)
-            CTRunGetStringIndices(run, CFRange(location: 0, length: count), &indices)
+            if scratchGlyphs.count < count { scratchGlyphs = [CGGlyph](repeating: 0, count: count) }
+            if scratchAdvances.count < count { scratchAdvances = [CGSize](repeating: .zero, count: count) }
+            if scratchIndices.count < count { scratchIndices = [CFIndex](repeating: 0, count: count) }
+            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &scratchGlyphs)
+            CTRunGetAdvances(run, CFRange(location: 0, length: count), &scratchAdvances)
+            CTRunGetStringIndices(run, CFRange(location: 0, length: count), &scratchIndices)
 
             // Get the run's font (for fallback fonts)
             let runFont: CTFont
@@ -252,9 +257,9 @@ final class GlyphAtlas {
             }
 
             for i in 0..<count {
-                let glyph = glyphs[i]
+                let glyph = scratchGlyphs[i]
                 guard glyph != 0 else { continue }
-                let strIdx = Int(indices[i])
+                let strIdx = Int(scratchIndices[i])
                 guard let glyphCol = charToCol[strIdx] else { continue }
 
                 let isColor = CTFontCreatePathForGlyph(runFont, glyph, nil) == nil
@@ -275,7 +280,7 @@ final class GlyphAtlas {
                     } else { continue }
                 }
 
-                let advW = advances[i].width
+                let advW = scratchAdvances[i].width
                 let colSpan = max(1, Int(round(advW / cellWidth)))
 
                 result[glyphCol] = RowGlyph(
