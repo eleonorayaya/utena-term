@@ -201,8 +201,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         graphics: GhosttyKittyGraphics,
         terminal: GhosttyTerminal,
         cellW: CGFloat, cellH: CGFloat,
-        vpW: CGFloat, vpH: CGFloat,
-        scale: CGFloat
+        vpW: CGFloat, vpH: CGFloat
     ) {
         guard let enc = currentEncoder else { return }
         var iterHandle: GhosttyKittyGraphicsPlacementIterator?
@@ -238,8 +237,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
             let destX = CGFloat(info.viewport_col) * cellW
             let destY = vpH - CGFloat(info.viewport_row + Int32(info.grid_rows)) * cellH
-            let destW = CGFloat(info.pixel_width) / scale
-            let destH = CGFloat(info.pixel_height) / scale
+            let destW = CGFloat(info.grid_cols) * cellW
+            let destH = CGFloat(info.grid_rows) * cellH
 
             let texW = Float(tex.width)
             let texH = Float(tex.height)
@@ -281,7 +280,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         let vpH = view.bounds.height
         let cw = tv.cellWidth
         let ch = tv.cellHeight
-        let scale = tv.backingScale
 
         guard let cb = commandQueue.makeCommandBuffer(),
               let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
@@ -295,7 +293,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
             tv.bridge.withKittyGraphics { graphics, terminal in
                 self.emitKittyPass(
                     layer: layer, graphics: graphics, terminal: terminal,
-                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH, scale: scale
+                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
                 )
                 self.flushVertices()
             }
