@@ -1,7 +1,7 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow!
+    private var window: TerminalWindow!
     private var pane: TerminalPane!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let contentSize = NSSize(width: cellW * Double(initialCols),
                                   height: cellH * Double(initialRows))
 
-        window = NSWindow(
+        window = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "Terminal"
         window.contentView = pane.view
+        window.splitDelegate = self
         window.makeFirstResponder(pane.view)
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -35,4 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
+}
+
+extension AppDelegate: TerminalWindowDelegate {
+    func terminalWindowSplitVertical() {}
+    func terminalWindowSplitHorizontal() {}
+    func terminalWindowFocusNext() {}
+    func terminalWindowFocusPrev() {}
+    func terminalWindowClosePane() {}
 }
