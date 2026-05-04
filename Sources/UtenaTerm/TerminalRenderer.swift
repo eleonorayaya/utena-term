@@ -67,7 +67,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     private var vertexWriteOffset = 0
 
     weak var termView: MetalTerminalView?
-    private let font: CTFont
     private var atlas: GlyphAtlas!
     private var kittyCache: KittyTextureCache!
 
@@ -82,7 +81,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     init(device: MTLDevice, view: MetalTerminalView) {
         self.device = device
         self.termView = view
-        self.font = view.font
         commandQueue = device.makeCommandQueue()!
 
         let library = try! device.makeLibrary(source: shaderSource, options: nil)
@@ -126,7 +124,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         )!
 
         super.init()
-        atlas = GlyphAtlas(device: device, font: font)
+        atlas = GlyphAtlas(device: device, font: view.font)
         kittyCache = KittyTextureCache(device: device)
     }
 
@@ -291,15 +289,18 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         enc.setFragmentTexture(atlas.grayTexture, index: 0)
         enc.setFragmentTexture(atlas.colorTexture, index: 1)
 
-        // --- Kitty BELOW_BG pass ---
-        tv.bridge.withKittyGraphics { graphics, terminal in
-            emitKittyPass(
-                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG,
-                graphics: graphics, terminal: terminal,
-                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
-            )
-            flushVertices()
+        let runKittyPass = { [self] (layer: GhosttyKittyPlacementLayer) in
+            tv.bridge.withKittyGraphics { graphics, terminal in
+                self.emitKittyPass(
+                    layer: layer, graphics: graphics, terminal: terminal,
+                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
+                )
+                self.flushVertices()
+            }
         }
+
+        // --- Kitty BELOW_BG pass ---
+        runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG)
 
         // --- Cell backgrounds and text ---
         tv.bridge.withRowIterator { iter, cellsHandle in
@@ -390,14 +391,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         flushVertices()
 
         // --- Kitty BELOW_TEXT pass ---
-        tv.bridge.withKittyGraphics { graphics, terminal in
-            emitKittyPass(
-                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT,
-                graphics: graphics, terminal: terminal,
-                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
-            )
-            flushVertices()
-        }
+        runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT)
 
         // --- Cursor ---
         if let cursor = tv.bridge.cursorState() {
@@ -427,14 +421,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         flushVertices()
 
         // --- Kitty ABOVE_TEXT pass ---
-        tv.bridge.withKittyGraphics { graphics, terminal in
-            emitKittyPass(
-                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT,
-                graphics: graphics, terminal: terminal,
-                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
-            )
-            flushVertices()
-        }
+        runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT)
 
         enc.endEncoding()
         currentEncoder = nil
