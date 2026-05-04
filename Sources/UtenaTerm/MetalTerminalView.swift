@@ -72,8 +72,10 @@ final class MetalTerminalView: MTKView {
         let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
         let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
         bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
-        let pxW = UInt16(max(1, Int(newSize.width)))
-        let pxH = UInt16(max(1, Int(newSize.height)))
+        let pxWInt: Int = max(1, Int(newSize.width * backingScale))
+        let pxHInt: Int = max(1, Int(newSize.height * backingScale))
+        let pxW = UInt16(min(Int(UInt16.max), pxWInt))
+        let pxH = UInt16(min(Int(UInt16.max), pxHInt))
         onResize?(gridCols, gridRows, pxW, pxH)
         setNeedsDisplay(bounds)
     }
