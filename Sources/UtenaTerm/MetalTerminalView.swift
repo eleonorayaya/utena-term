@@ -32,13 +32,16 @@ final class MetalTerminalView: MTKView {
         let descent = CTFontGetDescent(font)
         let leading = CTFontGetLeading(font)
         cellAscent = ascent
-        cellHeight = ascent + descent + leading
         var glyph: CGGlyph = 0
         var ch: UniChar = UniChar(UInt8(ascii: "M"))
         CTFontGetGlyphsForCharacters(font, &ch, &glyph, 1)
         var advance = CGSize.zero
         CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
-        cellWidth = advance.width
+        // Snap to whole device pixels so glyph quads land on integer boundaries,
+        // preventing the linear sampler from blurring across sub-pixel offsets.
+        let scale = backingScale
+        cellWidth = max(1, (advance.width * scale).rounded()) / scale
+        cellHeight = max(1, ((ascent + descent + leading) * scale).rounded()) / scale
     }
 
     var gridCols: UInt16 { UInt16(max(1, Int(bounds.width / cellWidth))) }
