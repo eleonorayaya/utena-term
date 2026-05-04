@@ -183,6 +183,13 @@ final class TerminalView: NSView {
         }
 
         bridge.clearDirty()
+
+        if isActive {
+            let borderColor = NSColor.controlAccentColor.cgColor
+            ctx.setStrokeColor(borderColor)
+            ctx.setLineWidth(2)
+            ctx.stroke(bounds.insetBy(dx: 1, dy: 1))
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -214,6 +221,10 @@ final class TerminalView: NSView {
             bridge.scroll(delta: deltaRows)
             needsDisplay = true
         }
+    }
+
+    var isActive: Bool = false {
+        didSet { needsDisplay = true }
     }
 
     private func resolveColor(_ color: GhosttyStyleColor, colors: GhosttyRenderStateColors, fallback: GhosttyColorRgb) -> GhosttyColorRgb {
