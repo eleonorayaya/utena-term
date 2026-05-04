@@ -1,5 +1,6 @@
 import AppKit
 import Metal
+import GhosttyVt
 
 final class TerminalPane {
     let bridge: GhosttyBridge
@@ -14,7 +15,11 @@ final class TerminalPane {
         let renderer = TerminalRenderer(device: device, view: view)
         view.renderer = renderer
         view.delegate = renderer
+        bridge.sizeProvider = { [weak view] in
+            view?.makeSizeReport() ?? GhosttySizeReportSize(rows: 0, columns: 0, cell_width: 0, cell_height: 0)
+        }
         pty = PtyManager()
+        bridge.onPtyWrite = { [weak self] data in self?.pty.write(data) }
         pty.onData = { [weak self] data in
             guard let self else { return }
             self.bridge.write(data)

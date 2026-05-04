@@ -15,6 +15,9 @@ final class GhosttyBridge {
     private var keyEvent: GhosttyKeyEvent
     private(set) var colors: GhosttyRenderStateColors
 
+    var sizeProvider: (() -> GhosttySizeReportSize)?
+    var onPtyWrite: ((Data) -> Void)?
+
     init(cols: UInt16, rows: UInt16, maxScrollback: Int = 10_000) throws {
         let opts = GhosttyTerminalOptions(cols: cols, rows: rows, max_scrollback: maxScrollback)
         var term: GhosttyTerminal?
@@ -58,6 +61,19 @@ final class GhosttyBridge {
         var c = GhosttyRenderStateColors()
         c.size = MemoryLayout<GhosttyRenderStateColors>.size
         colors = c
+
+        // Register XTWINOPS size query and pty-write callbacks
+        // (must be after all stored properties are initialized)
+        var userdata = Unmanaged.passUnretained(self).toOpaque()
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, &userdata)
+        var sizeFn: GhosttyTerminalSizeFn = { (term, ud, outSize) in
+            ghosttySizeCallback(term, ud, outSize)
+        }
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SIZE, &sizeFn)
+        var writeFn: GhosttyTerminalWritePtyFn = { (term, ud, data, len) in
+            ghosttyWritePtyCallback(term, ud, data, len)
+        }
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, &writeFn)
     }
 
     deinit {
@@ -190,6 +206,34 @@ final class GhosttyBridge {
     enum BridgeError: Error {
         case initFailed(String)
     }
+}
+
+// MARK: - XTWINOPS size callback (C-compatible)
+
+private func ghosttySizeCallback(
+    _ terminal: GhosttyTerminal?,
+    _ userdata: UnsafeMutableRawPointer?,
+    _ outSize: UnsafeMutablePointer<GhosttySizeReportSize>?
+) -> Bool {
+    guard let userdata, let outSize else { return false }
+    let bridge = Unmanaged<GhosttyBridge>.fromOpaque(userdata).takeUnretainedValue()
+    guard let size = bridge.sizeProvider?() else { return false }
+    outSize.pointee = size
+    return true
+}
+
+// MARK: - PTY write callback (C-compatible)
+
+private func ghosttyWritePtyCallback(
+    _ terminal: GhosttyTerminal?,
+    _ userdata: UnsafeMutableRawPointer?,
+    _ data: UnsafePointer<UInt8>?,
+    _ len: Int
+) {
+    guard let userdata, let data, len > 0 else { return }
+    let bridge = Unmanaged<GhosttyBridge>.fromOpaque(userdata).takeUnretainedValue()
+    let buffer = UnsafeBufferPointer(start: data, count: len)
+    bridge.onPtyWrite?(Data(buffer))
 }
 
 // MARK: - PNG decode callback (C-compatible, process-global)

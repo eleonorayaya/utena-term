@@ -48,6 +48,18 @@ final class MetalTerminalView: MTKView {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
+    func makeSizeReport() -> GhosttySizeReportSize {
+        let scale = backingScale
+        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
+        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        return GhosttySizeReportSize(
+            rows: gridRows,
+            columns: gridCols,
+            cell_width: cwPx,
+            cell_height: chPx
+        )
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         setNeedsDisplay(bounds)
