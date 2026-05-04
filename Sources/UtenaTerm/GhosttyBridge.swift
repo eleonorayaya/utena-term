@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import GhosttyVt
 
 struct CursorState {
@@ -8,7 +9,7 @@ struct CursorState {
 }
 
 final class GhosttyBridge {
-    private var terminal: GhosttyTerminal
+    private(set) var terminal: GhosttyTerminal
     private var renderState: GhosttyRenderState
     private var keyEncoder: GhosttyKeyEncoder
     private var keyEvent: GhosttyKeyEvent
@@ -45,6 +46,14 @@ final class GhosttyBridge {
             throw BridgeError.initFailed("key_event")
         }
         keyEvent = ev
+
+        // Enable Kitty graphics storage (335 MB)
+        var kittyLimit: UInt64 = 335 * 1024 * 1024
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &kittyLimit)
+
+        // Register PNG decode callback (process-global, safe to call multiple times)
+        var decodeFn: GhosttySysDecodePngFn = ghosttyDecodePng
+        _ = ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, &decodeFn)
 
         var c = GhosttyRenderStateColors()
         c.size = MemoryLayout<GhosttyRenderStateColors>.size
@@ -168,7 +177,56 @@ final class GhosttyBridge {
         ghostty_terminal_scroll_viewport(terminal, behavior)
     }
 
+    func withKittyGraphics(_ body: (GhosttyKittyGraphics, GhosttyTerminal) -> Void) {
+        var handle: GhosttyKittyGraphics?
+        guard ghostty_terminal_get(
+            terminal,
+            GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+            &handle
+        ) == GHOSTTY_SUCCESS, let h = handle else { return }
+        body(h, terminal)
+    }
+
     enum BridgeError: Error {
         case initFailed(String)
     }
+}
+
+// MARK: - PNG decode callback (C-compatible, process-global)
+
+private func ghosttyDecodePng(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ allocator: UnsafePointer<GhosttyAllocator>?,
+    _ data: UnsafePointer<UInt8>?,
+    _ dataLen: Int,
+    _ out: UnsafeMutablePointer<GhosttySysImage>?
+) -> Bool {
+    guard let data, let out else { return false }
+
+    let cfData = CFDataCreateWithBytesNoCopy(nil, data, dataLen, kCFAllocatorNull)!
+    guard let src = CGImageSourceCreateWithData(cfData, nil),
+          let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return false }
+
+    let w = cgImage.width
+    let h = cgImage.height
+    let byteCount = w * h * 4
+    guard let pixelBuf = ghostty_alloc(allocator, byteCount) else { return false }
+
+    guard let ctx = CGContext(
+        data: UnsafeMutableRawPointer(pixelBuf),
+        width: w, height: h,
+        bitsPerComponent: 8, bytesPerRow: w * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        ghostty_free(allocator, pixelBuf, byteCount)
+        return false
+    }
+    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+    out.pointee.width = UInt32(w)
+    out.pointee.height = UInt32(h)
+    out.pointee.data = pixelBuf
+    out.pointee.data_len = byteCount
+    return true
 }
