@@ -19,7 +19,7 @@ final class TerminalWindow: NSWindow {
             case 2 where shift:  splitDelegate?.terminalWindowSplitHorizontal(); return // Shift+D
             case 33:             splitDelegate?.terminalWindowFocusPrev(); return       // [
             case 30:             splitDelegate?.terminalWindowFocusNext(); return       // ]
-            case 13:             splitDelegate?.terminalWindowClosePane(); return       // W
+            case 13 where !event.isARepeat: splitDelegate?.terminalWindowClosePane(); return // W
             default: break
             }
         }
