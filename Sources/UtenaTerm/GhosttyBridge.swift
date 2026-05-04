@@ -54,9 +54,11 @@ final class GhosttyBridge {
         var kittyLimit: UInt64 = 335 * 1024 * 1024
         _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &kittyLimit)
 
-        // Register PNG decode callback (process-global, safe to call multiple times)
-        var decodeFn: GhosttySysDecodePngFn = ghosttyDecodePng
-        _ = ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, &decodeFn)
+        // Register PNG decode callback (process-global, safe to call multiple times).
+        // ghostty_sys_set uses the same @ptrCast convention as ghostty_terminal_set:
+        // value IS the function pointer, not a pointer to it.
+        let decodeFn: GhosttySysDecodePngFn = ghosttyDecodePng
+        _ = ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, unsafeBitCast(decodeFn, to: UnsafeRawPointer?.self))
 
         var c = GhosttyRenderStateColors()
         c.size = MemoryLayout<GhosttyRenderStateColors>.size
