@@ -111,10 +111,17 @@ final class PtyManager {
                 self?.onData?(chunk)
             }
         }
+        DispatchQueue.main.async { [weak self] in
+            NotificationCenter.default.post(name: .ptyDidClose, object: self)
+        }
     }
 
     deinit {
         if childPid > 0 { kill(childPid, SIGTERM) }
         if masterFd >= 0 { close(masterFd) }
     }
+}
+
+extension Notification.Name {
+    static let ptyDidClose = Notification.Name("PtyManagerDidClose")
 }
