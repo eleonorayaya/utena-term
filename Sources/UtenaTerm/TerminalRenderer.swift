@@ -192,48 +192,88 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     _ = ghostty_render_state_row_get(iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, UnsafeMutableRawPointer(cp))
                 }
                 let rowY = vpH - CGFloat(rowIndex + 1) * ch
+
+                // --- Pass 1: collect cell data + build row text for CoreText ---
+                struct CellInfo {
+                    var graphemeCPs: [UInt32]
+                    var fgVec: SIMD4<Float>
+                    var bgVec: SIMD4<Float>?   // non-nil if differs from terminal bg
+                }
+                var cellInfos: [CellInfo] = []
+                var rowText = ""
+
+                // Rewind by re-populating cells; the iterator is already at this row.
+                // We iterate cells once to build rowText and collect style/grapheme data.
                 var colIndex = 0
                 while ghostty_render_state_row_cells_next(cells) {
-                    defer { colIndex += 1 }
                     var graphemeLen: UInt32 = 0
                     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &graphemeLen)
                     var style = GhosttyStyle()
                     style.size = MemoryLayout<GhosttyStyle>.size
                     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style)
 
-                    let cellX = CGFloat(colIndex) * cw
-
-                    // Background
-                    let cellBg = resolveColor(style.bg_color, colors: colors, fallback: bg)
-                    if cellBg.r != bg.r || cellBg.g != bg.g || cellBg.b != bg.b {
-                        let bgColor = SIMD4<Float>(Float(cellBg.r)/255, Float(cellBg.g)/255, Float(cellBg.b)/255, 1)
-                        emitQuad(x: cellX, y: rowY, w: cw, h: ch,
-                                 u0: 0, v0: 0, u1: 1, v1: 1,
-                                 color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
-                    }
-
-                    // Glyph
+                    var codepoints = [UInt32](repeating: 0, count: max(1, Int(graphemeLen)))
                     if graphemeLen > 0 {
-                        var codepoints = [UInt32](repeating: 0, count: Int(graphemeLen))
                         _ = codepoints.withUnsafeMutableBufferPointer { buf in
                             ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, UnsafeMutableRawPointer(buf.baseAddress!))
                         }
-                        let fg = resolveColor(style.fg_color, colors: colors, fallback: colors.foreground)
-                        let fgVec = SIMD4<Float>(Float(fg.r)/255, Float(fg.g)/255, Float(fg.b)/255, 1)
+                    }
 
-                        for cp in codepoints.prefix(Int(graphemeLen)) {
-                            guard let (entry, isColor) = atlas.entry(for: cp) else { continue }
-                            let glyphY = rowY + (ch - CGFloat(entry.pixelHeight)) / 2
-                            emitQuad(
-                                x: cellX, y: glyphY,
-                                w: CGFloat(entry.pixelWidth), h: CGFloat(entry.pixelHeight),
-                                u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
-                                color: isColor ? .init(1,1,1,1) : fgVec,
-                                mode: isColor ? 1 : 0,
-                                vpW: vpW, vpH: vpH
-                            )
-                            break // one glyph per cell for now
-                        }
+                    // Build row text: use the first codepoint or a space for empty cells
+                    let textScalar: Unicode.Scalar
+                    if graphemeLen > 0, let s = Unicode.Scalar(codepoints[0]) {
+                        textScalar = s
+                    } else {
+                        textScalar = Unicode.Scalar(0x20)! // space
+                    }
+                    rowText.unicodeScalars.append(textScalar)
+
+                    let fg = resolveColor(style.fg_color, colors: colors, fallback: colors.foreground)
+                    let fgVec = SIMD4<Float>(Float(fg.r)/255, Float(fg.g)/255, Float(fg.b)/255, 1)
+
+                    let cellBg = resolveColor(style.bg_color, colors: colors, fallback: bg)
+                    let bgVec: SIMD4<Float>?
+                    if cellBg.r != bg.r || cellBg.g != bg.g || cellBg.b != bg.b {
+                        bgVec = SIMD4<Float>(Float(cellBg.r)/255, Float(cellBg.g)/255, Float(cellBg.b)/255, 1)
+                    } else {
+                        bgVec = nil
+                    }
+
+                    cellInfos.append(CellInfo(
+                        graphemeCPs: graphemeLen > 0 ? Array(codepoints.prefix(Int(graphemeLen))) : [],
+                        fgVec: fgVec,
+                        bgVec: bgVec
+                    ))
+                    colIndex += 1
+                }
+
+                // --- CoreText layout for this row ---
+                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
+
+                // --- Pass 2: emit quads ---
+                for (col, info) in cellInfos.enumerated() {
+                    let cellX = CGFloat(col) * cw
+
+                    // Background
+                    if let bgColor = info.bgVec {
+                        let se = atlas.solidEntry
+                        emitQuad(x: cellX, y: rowY, w: cw, h: ch,
+                                 u0: se.u0, v0: se.v0, u1: se.u1, v1: se.v1,
+                                 color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
+                    }
+
+                    // Glyph — from CoreText row layout
+                    if let rowGlyph = rowGlyphs[col] {
+                        let entry = rowGlyph.entry
+                        let glyphY = rowY + (ch - CGFloat(entry.pixelHeight)) / 2
+                        emitQuad(
+                            x: cellX, y: glyphY,
+                            w: CGFloat(entry.pixelWidth), h: CGFloat(entry.pixelHeight),
+                            u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
+                            color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
+                            mode: rowGlyph.isColor ? 1 : 0,
+                            vpW: vpW, vpH: vpH
+                        )
                     }
                 }
 
