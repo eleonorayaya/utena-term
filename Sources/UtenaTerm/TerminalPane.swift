@@ -19,7 +19,10 @@ final class TerminalPane {
             view?.makeSizeReport() ?? GhosttySizeReportSize(rows: 0, columns: 0, cell_width: 0, cell_height: 0)
         }
         pty = PtyManager()
-        bridge.onPtyWrite = { [weak self] data in self?.pty.write(data) }
+        bridge.onPtyWrite = { [weak self] data in
+            // Defer to avoid calling pty.write() inside bridge.write()'s withUnsafeBytes
+            DispatchQueue.main.async { [weak self] in self?.pty.write(data) }
+        }
         pty.onData = { [weak self] data in
             guard let self else { return }
             self.bridge.write(data)
