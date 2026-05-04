@@ -124,7 +124,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         )!
 
         super.init()
-        atlas = GlyphAtlas(device: device, font: view.font)
+        atlas = GlyphAtlas(device: device, font: view.font, backingScale: view.backingScale)
         kittyCache = KittyTextureCache(device: device)
     }
 
@@ -370,10 +370,10 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     let cellX = CGFloat(col) * cw
                     if let rowGlyph = rowGlyphs[col] {
                         let entry = rowGlyph.entry
-                        let glyphY = savedRowY + (ch - CGFloat(entry.pixelHeight)) / 2
+                        let glyphY = savedRowY + (ch - CGFloat(entry.pointHeight)) / 2
                         emitQuad(
                             x: cellX, y: glyphY,
-                            w: CGFloat(entry.pixelWidth), h: CGFloat(entry.pixelHeight),
+                            w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
                             u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
                             color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
                             mode: rowGlyph.isColor ? 1 : 0,

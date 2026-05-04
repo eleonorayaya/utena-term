@@ -4,8 +4,10 @@ import Metal
 
 struct AtlasEntry {
     var u0, v0, u1, v1: Float   // UV coordinates in [0, 1]
-    var pixelWidth: Int
-    var pixelHeight: Int
+    var pointWidth: Int   // emit-quad width in points
+    var pointHeight: Int  // emit-quad height in points
+    var pixelWidth: Int   // texture storage in atlas pixels (for layout/UV)
+    var pixelHeight: Int  // texture storage in atlas pixels
 }
 
 final class GlyphAtlas {
@@ -13,6 +15,7 @@ final class GlyphAtlas {
 
     let device: MTLDevice
     let font: CTFont
+    let backingScale: CGFloat
 
     private struct ShelfPacker {
         var shelfX = 0
@@ -44,9 +47,10 @@ final class GlyphAtlas {
     private var colorCache: [UInt32: AtlasEntry] = [:]
     private var colorPacker = ShelfPacker()
 
-    init(device: MTLDevice, font: CTFont) {
+    init(device: MTLDevice, font: CTFont, backingScale: CGFloat = 1.0) {
         self.device = device
         self.font = font
+        self.backingScale = backingScale
 
         let sz = GlyphAtlas.atlasSize
         let gd = MTLTextureDescriptor.texture2DDescriptor(
@@ -75,7 +79,7 @@ final class GlyphAtlas {
         grayPacker.shelfX = 2 // skip the 1x1 slot
     }
 
-    var solidEntry: AtlasEntry { AtlasEntry(u0: 0, v0: 0, u1: 1/Float(Self.atlasSize), v1: 1/Float(Self.atlasSize), pixelWidth: 1, pixelHeight: 1) }
+    var solidEntry: AtlasEntry { AtlasEntry(u0: 0, v0: 0, u1: 1/Float(Self.atlasSize), v1: 1/Float(Self.atlasSize), pointWidth: 1, pointHeight: 1, pixelWidth: 1, pixelHeight: 1) }
 
     // Returns true if this scalar's glyph is a color glyph (emoji etc.)
     func isColorGlyph(_ scalar: UInt32) -> Bool {
@@ -109,58 +113,65 @@ final class GlyphAtlas {
     private func rasterizeCore(glyph: CGGlyph, glyphFont: CTFont, color: Bool) -> AtlasEntry? {
         var g = glyph
         let bbox = CTFontGetBoundingRectsForGlyphs(glyphFont, .horizontal, &g, nil, 1)
-        let w = max(1, Int(ceil(bbox.width)) + 2)
-        let h = max(1, Int(ceil(bbox.height)) + 2)
+        let scale = backingScale
+        let pointW = max(1, Int(ceil(bbox.width)) + 2)
+        let pointH = max(1, Int(ceil(bbox.height)) + 2)
+        let pixelW = Int(ceil(CGFloat(pointW) * scale))
+        let pixelH = Int(ceil(CGFloat(pointH) * scale))
         let s = Self.atlasSize
 
         if color {
-            var pixels = [UInt8](repeating: 0, count: w * h * 4)
+            var pixels = [UInt8](repeating: 0, count: pixelW * pixelH * 4)
             guard let ctx = CGContext(
-                data: &pixels, width: w, height: h,
-                bitsPerComponent: 8, bytesPerRow: w * 4,
+                data: &pixels, width: pixelW, height: pixelH,
+                bitsPerComponent: 8, bytesPerRow: pixelW * 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
             ) else { return nil }
+            ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -bbox.minX + 1, y: -bbox.minY + 1)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
-            guard let slot = allocColorSlot(w: w, h: h) else { return nil }
+            guard let slot = allocColorSlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
             pixels.withUnsafeBytes { raw in
                 colorTexture.replace(
                     region: MTLRegion(origin: MTLOrigin(x: x, y: y, z: 0),
-                                      size: MTLSize(width: w, height: h, depth: 1)),
-                    mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: w * 4
+                                      size: MTLSize(width: pixelW, height: pixelH, depth: 1)),
+                    mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: pixelW * 4
                 )
             }
             return AtlasEntry(
                 u0: Float(x)/Float(s), v0: Float(y)/Float(s),
-                u1: Float(x+w)/Float(s), v1: Float(y+h)/Float(s),
-                pixelWidth: w, pixelHeight: h
+                u1: Float(x+pixelW)/Float(s), v1: Float(y+pixelH)/Float(s),
+                pointWidth: pointW, pointHeight: pointH,
+                pixelWidth: pixelW, pixelHeight: pixelH
             )
         } else {
-            var pixels = [UInt8](repeating: 0, count: w * h)
+            var pixels = [UInt8](repeating: 0, count: pixelW * pixelH)
             guard let ctx = CGContext(
-                data: &pixels, width: w, height: h,
-                bitsPerComponent: 8, bytesPerRow: w,
+                data: &pixels, width: pixelW, height: pixelH,
+                bitsPerComponent: 8, bytesPerRow: pixelW,
                 space: CGColorSpaceCreateDeviceGray(),
                 bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
             ) else { return nil }
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -bbox.minX + 1, y: -bbox.minY + 1)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
-            guard let slot = allocGraySlot(w: w, h: h) else { return nil }
+            guard let slot = allocGraySlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
             pixels.withUnsafeBytes { raw in
                 grayTexture.replace(
                     region: MTLRegion(origin: MTLOrigin(x: x, y: y, z: 0),
-                                      size: MTLSize(width: w, height: h, depth: 1)),
-                    mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: w
+                                      size: MTLSize(width: pixelW, height: pixelH, depth: 1)),
+                    mipmapLevel: 0, withBytes: raw.baseAddress!, bytesPerRow: pixelW
                 )
             }
             return AtlasEntry(
                 u0: Float(x)/Float(s), v0: Float(y)/Float(s),
-                u1: Float(x+w)/Float(s), v1: Float(y+h)/Float(s),
-                pixelWidth: w, pixelHeight: h
+                u1: Float(x+pixelW)/Float(s), v1: Float(y+pixelH)/Float(s),
+                pointWidth: pointW, pointHeight: pointH,
+                pixelWidth: pixelW, pixelHeight: pixelH
             )
         }
     }

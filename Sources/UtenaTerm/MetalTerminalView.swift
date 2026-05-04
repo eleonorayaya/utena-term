@@ -44,6 +44,15 @@ final class MetalTerminalView: MTKView {
     var gridCols: UInt16 { UInt16(max(1, Int(bounds.width / cellWidth))) }
     var gridRows: UInt16 { UInt16(max(1, Int(bounds.height / cellHeight))) }
 
+    var backingScale: CGFloat {
+        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setNeedsDisplay(bounds)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
