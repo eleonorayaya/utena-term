@@ -61,9 +61,15 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     private var vertices: [QuadVertex] = []
     private let maxVertices = 131_072
 
+    // Current encoder for use by helper passes
+    private var currentEncoder: MTLRenderCommandEncoder?
+    // Running write offset into the vertex buffer (in vertices, not bytes)
+    private var vertexWriteOffset = 0
+
     weak var termView: MetalTerminalView?
     private let font: CTFont
     private var atlas: GlyphAtlas!
+    private var kittyCache: KittyTextureCache!
 
     init(device: MTLDevice, view: MetalTerminalView) {
         self.device = device
@@ -113,6 +119,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
         super.init()
         atlas = GlyphAtlas(device: device, font: font)
+        kittyCache = KittyTextureCache(device: device)
     }
 
     func resize(width: Int, height: Int) {}
@@ -159,6 +166,84 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         }
     }
 
+    // MARK: - Flush helpers
+
+    /// Flush accumulated vertices to the GPU.
+    private func flushVertices() {
+        guard !vertices.isEmpty, let enc = currentEncoder else { return }
+        let stride = MemoryLayout<QuadVertex>.stride
+        let byteOffset = vertexWriteOffset * stride
+        let byteCount = vertices.count * stride
+        guard byteOffset + byteCount <= vertexBuffer.length else { return }
+        vertexBuffer.contents().advanced(by: byteOffset).copyMemory(
+            from: vertices, byteCount: byteCount
+        )
+        enc.setVertexBuffer(vertexBuffer, offset: byteOffset, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertices.count)
+        vertexWriteOffset += vertices.count
+        vertices.removeAll(keepingCapacity: true)
+    }
+
+    /// Emit Kitty image quads for all placements in the given layer.
+    private func emitKittyPass(
+        layer: GhosttyKittyPlacementLayer,
+        graphics: GhosttyKittyGraphics,
+        terminal: GhosttyTerminal,
+        cellW: CGFloat, cellH: CGFloat,
+        vpW: CGFloat, vpH: CGFloat
+    ) {
+        guard let enc = currentEncoder else { return }
+        var iterHandle: GhosttyKittyGraphicsPlacementIterator?
+        guard ghostty_kitty_graphics_placement_iterator_new(nil, &iterHandle) == GHOSTTY_SUCCESS,
+              let iter = iterHandle else { return }
+        defer { ghostty_kitty_graphics_placement_iterator_free(iter) }
+
+        var layerFilter = layer
+        _ = ghostty_kitty_graphics_placement_iterator_set(
+            iter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER, &layerFilter
+        )
+        withUnsafeMutablePointer(to: &iterHandle) { ptr in
+            _ = ghostty_kitty_graphics_get(graphics, GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR, UnsafeMutableRawPointer(ptr))
+        }
+
+        while ghostty_kitty_graphics_placement_next(iter) {
+            var imageID: UInt32 = 0
+            _ = ghostty_kitty_graphics_placement_get(iter, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID, &imageID)
+
+            guard let image = ghostty_kitty_graphics_image(graphics, imageID) else { continue }
+            guard let tex = kittyCache.texture(for: imageID, graphics: graphics) else { continue }
+
+            var info = GhosttyKittyGraphicsPlacementRenderInfo()
+            info.size = MemoryLayout<GhosttyKittyGraphicsPlacementRenderInfo>.size
+            guard ghostty_kitty_graphics_placement_render_info(iter, image, terminal, &info) == GHOSTTY_SUCCESS,
+                  info.viewport_visible else { continue }
+
+            // Flush pending text vertices before switching image texture
+            if !vertices.isEmpty {
+                flushVertices()
+            }
+            enc.setFragmentTexture(tex, index: 2)
+
+            let destX = CGFloat(info.viewport_col) * cellW
+            let destY = vpH - CGFloat(info.viewport_row + Int32(info.grid_rows)) * cellH
+            let destW = CGFloat(info.pixel_width)
+            let destH = CGFloat(info.pixel_height)
+
+            let texW = Float(tex.width)
+            let texH = Float(tex.height)
+            let u0 = Float(info.source_x) / texW
+            let v0 = Float(info.source_y) / texH
+            let u1 = Float(info.source_x + info.source_width) / texW
+            let v1 = Float(info.source_y + info.source_height) / texH
+
+            emitQuad(x: destX, y: destY, w: destW, h: destH,
+                     u0: u0, v0: v0, u1: u1, v1: v1,
+                     color: .init(1, 1, 1, 1), mode: 2,
+                     vpW: vpW, vpH: vpH)
+            flushVertices()
+        }
+    }
+
     // MARK: - Draw
 
     func draw(in view: MTKView) {
@@ -178,12 +263,32 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         rpd.colorAttachments[0].loadAction = .clear
 
         vertices.removeAll(keepingCapacity: true)
+        vertexWriteOffset = 0
 
         let vpW = view.drawableSize.width
         let vpH = view.drawableSize.height
         let cw = tv.cellWidth
         let ch = tv.cellHeight
 
+        guard let cb = commandQueue.makeCommandBuffer(),
+              let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
+
+        currentEncoder = enc
+        enc.setRenderPipelineState(pipeline)
+        enc.setFragmentTexture(atlas.grayTexture, index: 0)
+        enc.setFragmentTexture(atlas.colorTexture, index: 1)
+
+        // --- Kitty BELOW_BG pass ---
+        tv.bridge.withKittyGraphics { graphics, terminal in
+            emitKittyPass(
+                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG,
+                graphics: graphics, terminal: terminal,
+                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
+            )
+            flushVertices()
+        }
+
+        // --- Cell backgrounds and text ---
         tv.bridge.withRowIterator { iter, cellsHandle in
             var cells = cellsHandle
             var rowIndex = 0
@@ -193,18 +298,13 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                 }
                 let rowY = vpH - CGFloat(rowIndex + 1) * ch
 
-                // --- Pass 1: collect cell data + build row text for CoreText ---
                 struct CellInfo {
-                    var graphemeCPs: [UInt32]
                     var fgVec: SIMD4<Float>
-                    var bgVec: SIMD4<Float>?   // non-nil if differs from terminal bg
+                    var bgVec: SIMD4<Float>?
                 }
                 var cellInfos: [CellInfo] = []
                 var rowText = ""
 
-                // Rewind by re-populating cells; the iterator is already at this row.
-                // We iterate cells once to build rowText and collect style/grapheme data.
-                var colIndex = 0
                 while ghostty_render_state_row_cells_next(cells) {
                     var graphemeLen: UInt32 = 0
                     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &graphemeLen)
@@ -219,12 +319,11 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                         }
                     }
 
-                    // Build row text: use the first codepoint or a space for empty cells
                     let textScalar: Unicode.Scalar
                     if graphemeLen > 0, let s = Unicode.Scalar(codepoints[0]) {
                         textScalar = s
                     } else {
-                        textScalar = Unicode.Scalar(0x20)! // space
+                        textScalar = Unicode.Scalar(0x20)!
                     }
                     rowText.unicodeScalars.append(textScalar)
 
@@ -238,34 +337,30 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     } else {
                         bgVec = nil
                     }
-
-                    cellInfos.append(CellInfo(
-                        graphemeCPs: graphemeLen > 0 ? Array(codepoints.prefix(Int(graphemeLen))) : [],
-                        fgVec: fgVec,
-                        bgVec: bgVec
-                    ))
-                    colIndex += 1
+                    cellInfos.append(CellInfo(fgVec: fgVec, bgVec: bgVec))
                 }
 
-                // --- CoreText layout for this row ---
-                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
-
-                // --- Pass 2: emit quads ---
+                // Emit backgrounds
                 for (col, info) in cellInfos.enumerated() {
                     let cellX = CGFloat(col) * cw
-
-                    // Background
                     if let bgColor = info.bgVec {
                         let se = atlas.solidEntry
                         emitQuad(x: cellX, y: rowY, w: cw, h: ch,
                                  u0: se.u0, v0: se.v0, u1: se.u1, v1: se.v1,
                                  color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
                     }
+                }
 
-                    // Glyph — from CoreText row layout
+                rowIndex += 1
+                // Store rowText and cellInfos for text pass below
+                // We do text in the same loop to avoid re-iterating
+                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
+                let savedRowY = rowY
+                for (col, info) in cellInfos.enumerated() {
+                    let cellX = CGFloat(col) * cw
                     if let rowGlyph = rowGlyphs[col] {
                         let entry = rowGlyph.entry
-                        let glyphY = rowY + (ch - CGFloat(entry.pixelHeight)) / 2
+                        let glyphY = savedRowY + (ch - CGFloat(entry.pixelHeight)) / 2
                         emitQuad(
                             x: cellX, y: glyphY,
                             w: CGFloat(entry.pixelWidth), h: CGFloat(entry.pixelHeight),
@@ -279,11 +374,23 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
                 var clean = false
                 ghostty_render_state_row_set(iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean)
-                rowIndex += 1
             }
         }
 
-        // Cursor
+        // Flush text/bg vertices before below-text Kitty pass
+        flushVertices()
+
+        // --- Kitty BELOW_TEXT pass ---
+        tv.bridge.withKittyGraphics { graphics, terminal in
+            emitKittyPass(
+                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT,
+                graphics: graphics, terminal: terminal,
+                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
+            )
+            flushVertices()
+        }
+
+        // --- Cursor ---
         if let cursor = tv.bridge.cursorState() {
             let cx = CGFloat(cursor.x) * cw
             let cy = vpH - CGFloat(cursor.y + 1) * ch
@@ -308,25 +415,20 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                          color: white, mode: 0, vpW: vpW, vpH: vpH)
             }
         }
+        flushVertices()
 
-        guard let cb = commandQueue.makeCommandBuffer(),
-              let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
-
-        enc.setRenderPipelineState(pipeline)
-        enc.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        enc.setFragmentTexture(atlas.grayTexture, index: 0)
-        enc.setFragmentTexture(atlas.colorTexture, index: 1)
-        // index 2 (Kitty) will be added in Task 11
-
-        if !vertices.isEmpty {
-            vertexBuffer.contents().copyMemory(
-                from: vertices,
-                byteCount: MemoryLayout<QuadVertex>.stride * vertices.count
+        // --- Kitty ABOVE_TEXT pass ---
+        tv.bridge.withKittyGraphics { graphics, terminal in
+            emitKittyPass(
+                layer: GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT,
+                graphics: graphics, terminal: terminal,
+                cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
             )
-            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertices.count)
+            flushVertices()
         }
 
         enc.endEncoding()
+        currentEncoder = nil
         cb.present(drawable)
         cb.commit()
 
