@@ -11,18 +11,21 @@ protocol TerminalWindowDelegate: AnyObject {
 final class TerminalWindow: NSWindow {
     weak var splitDelegate: TerminalWindowDelegate?
 
-    override func keyDown(with event: NSEvent) {
-        let cmd = event.modifierFlags.contains(.command)
-        let shift = event.modifierFlags.contains(.shift)
-        guard cmd else { super.keyDown(with: event); return }
-
-        switch (event.charactersIgnoringModifiers, shift) {
-        case ("d", false): splitDelegate?.terminalWindowSplitVertical()
-        case ("d", true):  splitDelegate?.terminalWindowSplitHorizontal()
-        case ("[", _):     splitDelegate?.terminalWindowFocusPrev()
-        case ("]", _):     splitDelegate?.terminalWindowFocusNext()
-        case ("w", _):     splitDelegate?.terminalWindowClosePane()
-        default:           super.keyDown(with: event)
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown {
+            let cmd = event.modifierFlags.contains(.command)
+            let shift = event.modifierFlags.contains(.shift)
+            if cmd {
+                switch (event.charactersIgnoringModifiers, shift) {
+                case ("d", false): splitDelegate?.terminalWindowSplitVertical(); return
+                case ("d", true):  splitDelegate?.terminalWindowSplitHorizontal(); return
+                case ("[", _):     splitDelegate?.terminalWindowFocusPrev(); return
+                case ("]", _):     splitDelegate?.terminalWindowFocusNext(); return
+                case ("w", _):     splitDelegate?.terminalWindowClosePane(); return
+                default: break
+                }
+            }
         }
+        super.sendEvent(event)
     }
 }
