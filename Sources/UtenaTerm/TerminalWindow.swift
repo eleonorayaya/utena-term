@@ -12,18 +12,15 @@ final class TerminalWindow: NSWindow {
     weak var splitDelegate: TerminalWindowDelegate?
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown {
-            let cmd = event.modifierFlags.contains(.command)
+        if event.type == .keyDown, event.modifierFlags.contains(.command) {
             let shift = event.modifierFlags.contains(.shift)
-            if cmd {
-                switch (event.charactersIgnoringModifiers, shift) {
-                case ("d", false): splitDelegate?.terminalWindowSplitVertical(); return
-                case ("d", true):  splitDelegate?.terminalWindowSplitHorizontal(); return
-                case ("[", _):     splitDelegate?.terminalWindowFocusPrev(); return
-                case ("]", _):     splitDelegate?.terminalWindowFocusNext(); return
-                case ("w", _):     splitDelegate?.terminalWindowClosePane(); return
-                default: break
-                }
+            switch event.keyCode {
+            case 2 where !shift: splitDelegate?.terminalWindowSplitVertical(); return   // D
+            case 2 where shift:  splitDelegate?.terminalWindowSplitHorizontal(); return // Shift+D
+            case 33:             splitDelegate?.terminalWindowFocusPrev(); return       // [
+            case 30:             splitDelegate?.terminalWindowFocusNext(); return       // ]
+            case 13:             splitDelegate?.terminalWindowClosePane(); return       // W
+            default: break
             }
         }
         super.sendEvent(event)
