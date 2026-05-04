@@ -276,8 +276,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         vertices.removeAll(keepingCapacity: true)
         vertexWriteOffset = 0
 
-        let vpW = view.drawableSize.width
-        let vpH = view.drawableSize.height
+        let vpW = view.bounds.width
+        let vpH = view.bounds.height
         let cw = tv.cellWidth
         let ch = tv.cellHeight
 
