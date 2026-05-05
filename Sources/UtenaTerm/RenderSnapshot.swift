@@ -19,6 +19,13 @@ struct ViewportSnapshot {
     let colors: GhosttyRenderStateColors
 }
 
+// True for Nerd Font / Powerline / icon ranges in the Unicode Private Use Areas.
+func isIconScalar(_ scalar: UInt32) -> Bool {
+    return (0xE000...0xF8FF).contains(scalar) ||
+           (0xF0000...0xFFFFD).contains(scalar) ||
+           (0x100000...0x10FFFD).contains(scalar)
+}
+
 func resolveColor(
     _ color: GhosttyStyleColor,
     colors: GhosttyRenderStateColors,

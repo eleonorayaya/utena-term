@@ -94,41 +94,18 @@ final class GlyphAtlas {
 
     var solidEntry: AtlasEntry { AtlasEntry(u0: 0, v0: 0, u1: 1/Float(Self.atlasSize), v1: 1/Float(Self.atlasSize), pointWidth: 1, pointHeight: 1, pixelWidth: 1, pixelHeight: 1) }
 
-    // Returns true if this scalar's glyph is a color glyph (emoji etc.)
-    func isColorGlyph(_ scalar: UInt32) -> Bool {
-        var glyph: CGGlyph = 0
-        var us = UniChar(scalar & 0xFFFF)
-        guard CTFontGetGlyphsForCharacters(font, &us, &glyph, 1), glyph != 0 else { return false }
-        return CTFontCreatePathForGlyph(font, glyph, nil) == nil
-    }
-
-    func entry(for scalar: UInt32) -> (AtlasEntry, Bool)? {
-        if let e = grayCache[scalar] { return (e, false) }
-        if let e = colorCache[scalar] { return (e, true) }
-        let isColor = isColorGlyph(scalar)
-        return rasterize(scalar: scalar, color: isColor).map { ($0, isColor) }
-    }
-
-    private func rasterize(scalar: UInt32, color: Bool) -> AtlasEntry? {
-        guard let us = Unicode.Scalar(scalar) else { return nil }
-        var glyph: CGGlyph = 0
-        var ch = Array(String(us).utf16)
-        guard CTFontGetGlyphsForCharacters(font, &ch, &glyph, ch.count), glyph != 0 else { return nil }
-        let icon = isIconScalar(scalar)
-        guard let entry = rasterizeCore(glyph: glyph, glyphFont: font, color: color, isIcon: icon) else { return nil }
-        if color { colorCache[scalar] = entry } else { grayCache[scalar] = entry }
-        return entry
-    }
-
-    func rasterize(glyph: CGGlyph, glyphFont: CTFont, color: Bool, isIcon: Bool = false) -> AtlasEntry? {
-        rasterizeCore(glyph: glyph, glyphFont: glyphFont, color: color, isIcon: isIcon)
-    }
-
-    // True for Nerd Font / Powerline / icon ranges in the Unicode Private Use Areas.
-    private func isIconScalar(_ scalar: UInt32) -> Bool {
-        return (0xE000...0xF8FF).contains(scalar) ||
-               (0xF0000...0xFFFFD).contains(scalar) ||
-               (0x100000...0x10FFFD).contains(scalar)
+    /// Lookup or rasterize the atlas entry for a glyph. The cache key encodes color and
+    /// icon-fit variants so the same glyph index can have distinct rasterizations.
+    func entry(forGlyph glyph: CGGlyph, font: CTFont, isIcon: Bool) -> (AtlasEntry, Bool)? {
+        let isColor = CTFontCreatePathForGlyph(font, glyph, nil) == nil
+        let cacheKey = UInt32(glyph)
+            | (isColor ? 0x8000_0000 : 0)
+            | (isIcon ? 0x4000_0000 : 0)
+        if isColor, let e = colorCache[cacheKey] { return (e, true) }
+        if !isColor, let e = grayCache[cacheKey] { return (e, false) }
+        guard let e = rasterizeCore(glyph: glyph, glyphFont: font, color: isColor, isIcon: isIcon) else { return nil }
+        if isColor { colorCache[cacheKey] = e } else { grayCache[cacheKey] = e }
+        return (e, isColor)
     }
 
     private struct IconFit {
@@ -250,97 +227,4 @@ final class GlyphAtlas {
         var xOffset: CGFloat   // pixel offset from cell left edge
         var yOffset: CGFloat   // pixel offset from cell bottom edge
     }
-
-    // Scratch buffers for layoutRow — hoisted to avoid per-frame heap allocations
-    private var scratchGlyphs: [CGGlyph] = []
-    private var scratchAdvances: [CGSize] = []
-    private var scratchIndices: [CFIndex] = []
-
-    /// Layout an entire terminal row using CoreText.
-    /// - Parameter text: The row string; one Unicode scalar per cell, spaces for empty cells.
-    /// - Parameter cellWidth: The nominal pixel width of one cell.
-    func layoutRow(text: String, cellWidth: CGFloat) -> [Int: RowGlyph] {
-        let attrs: [CFString: Any] = [kCTFontAttributeName: font]
-        let attrStr = CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)!
-        let line = CTLineCreateWithAttributedString(attrStr)
-        let runs = CTLineGetGlyphRuns(line) as! [CTRun]
-
-        // Build UTF-16 offset → column mapping and column → scalar mapping
-        var charToCol: [Int: Int] = [:]
-        var colToScalar: [Int: UInt32] = [:]
-        var utf16Offset = 0
-        var col = 0
-        for scalar in text.unicodeScalars {
-            let utf16len = scalar.utf16.count
-            charToCol[utf16Offset] = col
-            colToScalar[col] = scalar.value
-            if utf16len == 2 {
-                charToCol[utf16Offset + 1] = col  // surrogate pair second unit
-            }
-            utf16Offset += utf16len
-            col += 1
-        }
-
-        var result: [Int: RowGlyph] = [:]
-
-        for run in runs {
-            let count = CTRunGetGlyphCount(run)
-            guard count > 0 else { continue }
-            if scratchGlyphs.count < count { scratchGlyphs = [CGGlyph](repeating: 0, count: count) }
-            if scratchAdvances.count < count { scratchAdvances = [CGSize](repeating: .zero, count: count) }
-            if scratchIndices.count < count { scratchIndices = [CFIndex](repeating: 0, count: count) }
-            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &scratchGlyphs)
-            CTRunGetAdvances(run, CFRange(location: 0, length: count), &scratchAdvances)
-            CTRunGetStringIndices(run, CFRange(location: 0, length: count), &scratchIndices)
-
-            // Get the run's font (for fallback fonts)
-            let runFont: CTFont
-            if let attrs = CTRunGetAttributes(run) as? [CFString: Any],
-               let rf = attrs[kCTFontAttributeName] {
-                runFont = (rf as! CTFont)
-            } else {
-                runFont = font
-            }
-
-            for i in 0..<count {
-                let glyph = scratchGlyphs[i]
-                guard glyph != 0 else { continue }
-                let strIdx = Int(scratchIndices[i])
-                guard let glyphCol = charToCol[strIdx] else { continue }
-
-                let scalar = colToScalar[glyphCol]
-                let isIcon = scalar.map(isIconScalar) ?? false
-                let isColor = CTFontCreatePathForGlyph(runFont, glyph, nil) == nil
-                // 0x4000_0000 differentiates icon-fit rasterizations from normal ones in the cache,
-                // since the same glyph index can produce different bitmaps depending on the transform.
-                let cacheKey = UInt32(glyph) | (isColor ? 0x8000_0000 : 0) | (isIcon ? 0x4000_0000 : 0)
-
-                let entry: AtlasEntry
-                if isColor {
-                    if let e = colorCache[cacheKey] {
-                        entry = e
-                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: true, isIcon: isIcon) {
-                        colorCache[cacheKey] = e; entry = e
-                    } else { continue }
-                } else {
-                    if let e = grayCache[cacheKey] {
-                        entry = e
-                    } else if let e = rasterize(glyph: glyph, glyphFont: runFont, color: false, isIcon: isIcon) {
-                        grayCache[cacheKey] = e; entry = e
-                    } else { continue }
-                }
-
-                let advW = scratchAdvances[i].width
-                let colSpan = max(1, Int(round(advW / cellWidth)))
-
-                result[glyphCol] = RowGlyph(
-                    glyphIndex: glyph, isColor: isColor, entry: entry,
-                    colSpan: colSpan, xOffset: 0, yOffset: 0
-                )
-            }
-        }
-
-        return result
-    }
-
 }

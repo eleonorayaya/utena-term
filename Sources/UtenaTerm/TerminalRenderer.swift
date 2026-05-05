@@ -66,6 +66,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
     weak var termView: MetalTerminalView?
     private var atlas: GlyphAtlas!
+    private var rowShaper: RowShaper!
     private var kittyCache: KittyTextureCache!
 
     init(device: MTLDevice, view: MetalTerminalView) {
@@ -115,6 +116,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
         super.init()
         atlas = GlyphAtlas(device: device, font: view.font, cellWidth: view.cellWidth, cellHeight: view.cellHeight, backingScale: view.backingScale)
+        rowShaper = RowShaper(font: view.font)
         kittyCache = KittyTextureCache(device: device)
     }
 
@@ -284,7 +286,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         let solid = atlas.solidEntry
         for (rowIndex, row) in snapshot.rows.enumerated() {
             let rowY = vpH - padY - CGFloat(rowIndex + 1) * ch
-            let rowGlyphs = atlas.layoutRow(text: row.rowText, cellWidth: cw)
+            let rowGlyphs = rowShaper.layout(text: row.rowText, cellWidth: cw, atlas: atlas)
             for (col, cell) in row.cells.enumerated() {
                 let cellX = padX + CGFloat(col) * cw
                 if let bgColor = cell.bg {
