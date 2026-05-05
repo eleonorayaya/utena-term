@@ -8,6 +8,7 @@ final class MetalTerminalView: MTKView {
     var onResize: ((UInt16, UInt16, UInt16, UInt16) -> Void)?
     var onFocus: (() -> Void)?
     var isActive: Bool = false { didSet { setNeedsDisplay(bounds) } }
+    var backgroundAppearance: PaneAppearance? = nil { didSet { setNeedsDisplay(bounds) } }
 
     let font: CTFont
     var cellWidth: CGFloat = 0
