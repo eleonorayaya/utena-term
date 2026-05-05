@@ -12,13 +12,13 @@ final class TmuxWindowController: NSWindowController {
     private var lastRefreshedSize: (cols: Int, rows: Int) = (0, 0)
     private var tabView: NSTabView!
     private let layoutParser = TmuxLayoutParser()
+    private var chrome: SessionChrome?
 
     convenience init() {
         let initialSize = NSSize(width: 880, height: 550)
 
         let tv = NSTabView(frame: NSRect(origin: .zero, size: initialSize))
-        tv.tabViewType = .topTabsBezelBorder
-        tv.autoresizingMask = [.width, .height]
+        tv.tabViewType = .noTabsNoBorder
 
         let win = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: initialSize),
@@ -27,12 +27,15 @@ final class TmuxWindowController: NSWindowController {
             defer: false
         )
         win.title = "tmux"
-        win.contentView = tv
+        let chrome = SessionChrome(contentView: tv)
+        win.contentView = chrome
         win.center()
 
         self.init(window: win)
 
         tabView = tv
+        self.chrome = chrome
+        chrome.delegate = self
         win.splitDelegate = self
         controlSession.delegate = self
 
@@ -111,6 +114,7 @@ final class TmuxWindowController: NSWindowController {
             if currentWindowID == nil {
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
+                chrome?.windowsDidChange()
             }
         }
         applySplitPositions(view: rootView, node: node, frame: containerFrame)
@@ -254,6 +258,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         if !orderedWindowIDs.contains(windowID) {
             orderedWindowIDs.append(windowID)
         }
+        chrome?.windowsDidChange()
     }
 
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String) {
@@ -272,11 +277,13 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
             }
         }
         if tabView.numberOfTabViewItems == 0 { window?.close() }
+        chrome?.windowsDidChange()
     }
 
     func session(_ session: TmuxControlSession, didChangeTo sessionID: String, name: String) {
         tearDownAll()
         window?.title = name
+        chrome?.sessionDidChange(to: name)
         Task { await self.rebuildFromSession() }
     }
 
@@ -325,6 +332,19 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowClosePane() {
         guard let pane = focusedPane else { return }
         controlSession.killPane(target: pane.paneID)
+    }
+}
+
+// MARK: - SessionChromeDelegate
+
+extension TmuxWindowController: SessionChromeDelegate {
+    var sessionName: String { window?.title ?? "" }
+    var activeWindowID: String? { currentWindowID }
+    func selectWindow(id: String) {
+        guard let item = tabItems[id] else { return }
+        tabView.selectTabViewItem(item)
+        currentWindowID = id
+        chrome?.windowsDidChange()
     }
 }
 
