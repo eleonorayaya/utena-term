@@ -8,6 +8,10 @@ final class MetalTerminalView: MTKView {
     var onResize: ((UInt16, UInt16, UInt16, UInt16) -> Void)?
     var onFocus: (() -> Void)?
     var isActive: Bool = false { didSet { setNeedsDisplay(bounds) } }
+    var backgroundAppearance: PaneAppearance? = nil { didSet { setNeedsDisplay(bounds) } }
+    var resolvedBackground: PaneAppearance {
+        backgroundAppearance ?? (window as? TerminalWindow)?.windowBackground ?? .default
+    }
 
     let font: CTFont
     var cellWidth: CGFloat = 0
@@ -25,6 +29,7 @@ final class MetalTerminalView: MTKView {
         enableSetNeedsDisplay = true
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        (layer as? CAMetalLayer)?.isOpaque = false
     }
 
     required init(coder: NSCoder) { fatalError() }

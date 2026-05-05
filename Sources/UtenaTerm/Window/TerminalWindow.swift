@@ -10,6 +10,7 @@ protocol TerminalWindowDelegate: AnyObject {
 
 final class TerminalWindow: NSWindow {
     weak var splitDelegate: TerminalWindowDelegate?
+    var windowBackground: PaneAppearance = .default
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, !event.isARepeat, event.modifierFlags.contains(.command) {

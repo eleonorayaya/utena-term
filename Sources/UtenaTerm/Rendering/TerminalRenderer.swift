@@ -249,13 +249,13 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
               let rpd = view.currentRenderPassDescriptor else { return }
 
         let snapshot = tv.bridge.snapshotViewport()
-        let colors = snapshot.colors
-        let bg = colors.background
+
+        let bg = tv.resolvedBackground
         rpd.colorAttachments[0].clearColor = MTLClearColor(
-            red:   Double(bg.r) / 255,
-            green: Double(bg.g) / 255,
-            blue:  Double(bg.b) / 255,
-            alpha: 1
+            red:   Double(bg.backgroundColor.x),
+            green: Double(bg.backgroundColor.y),
+            blue:  Double(bg.backgroundColor.z),
+            alpha: Double(bg.backgroundOpacity)
         )
         rpd.colorAttachments[0].loadAction = .clear
 
