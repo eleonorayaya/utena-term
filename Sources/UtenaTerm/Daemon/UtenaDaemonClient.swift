@@ -11,9 +11,9 @@ actor UtenaDaemonClient {
     private var pollingTask: Task<Void, Never>?
 
     init() {
-        var cont: AsyncStream<[Session]>.Continuation!
-        sessions = AsyncStream { cont = $0 }
-        continuation = cont
+        // Bound the buffer to one snapshot — a slow consumer should see the
+        // latest state, not a backlog of stale ~290KB payloads.
+        (sessions, continuation) = AsyncStream<[Session]>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
     func start() {
@@ -47,23 +47,34 @@ actor UtenaDaemonClient {
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .custom { path in
-            let key = path.last!
-            return AnyKey(stringValue: convertKey(key.stringValue))
+            AnyKey(stringValue: convertKey(path.last!.stringValue))
         }
         d.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let str = try container.decode(String.self)
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: str) { return date }
-            formatter.formatOptions = [.withInternetDateTime]
-            if let date = formatter.date(from: str) { return date }
+            if let date = iso8601Fractional.date(from: str) { return date }
+            if let date = iso8601Plain.date(from: str) { return date }
             throw DecodingError.dataCorruptedError(
                 in: container,
                 debugDescription: "Invalid ISO8601 date: \(str)"
             )
         }
         return d
+    }()
+
+    // ISO8601DateFormatter is heavy to construct (and we parse ~1400 dates per
+    // tick), so cache one per format-options shape. Both are read-only after
+    // setup and ISO8601DateFormatter.date(from:) is documented thread-safe.
+    private static let iso8601Fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let iso8601Plain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
     }()
 
     /// Convert utena daemon JSON keys to Swift camelCase. The daemon mixes
