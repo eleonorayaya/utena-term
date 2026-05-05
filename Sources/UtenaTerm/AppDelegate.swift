@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tmuxControllers: [TmuxWindowController] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await UtenaDaemonClient.shared.start() }
         let controller = TerminalWindowController()
         controllers.append(controller)
         controller.showWindow(nil)
