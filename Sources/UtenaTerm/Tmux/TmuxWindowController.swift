@@ -51,12 +51,34 @@ final class TmuxWindowController: NSWindowController {
             return
         }
 
-        let sessions = TmuxControlSession.listExistingSessions(tmuxPath: tmuxPath)
+        // Fetch daemon sessions (synchronous via semaphore — stays on main thread like NSAlert did)
+        var daemonSessions: [Session] = []
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            daemonSessions = (try? await UtenaDaemonClient.shared.fetchOnce()) ?? []
+            sem.signal()
+        }
+        sem.wait()
+
+        let pickerResult = SessionPickerController.run(sessions: daemonSessions)
         var groupTarget: String?
-        if !sessions.isEmpty {
-            let result = pickSession(from: sessions)
-            if result.cancelled { win.close(); return }
-            groupTarget = result.target
+
+        switch pickerResult {
+        case .cancel:
+            win.close(); return
+        case .attach(let session):
+            guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
+            groupTarget = tmuxName
+        case .create(let name, let workspaceId):
+            var created: Session?
+            let createSem = DispatchSemaphore(value: 0)
+            Task {
+                created = try? await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId)
+                createSem.signal()
+            }
+            createSem.wait()
+            guard let s = created, let tmuxName = s.tmuxSession?.name else { win.close(); return }
+            groupTarget = tmuxName
         }
 
         do {
@@ -180,24 +202,6 @@ final class TmuxWindowController: NSWindowController {
                 applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
             }
         }
-    }
-
-    private func pickSession(from sessions: [(id: String, name: String)]) -> (target: String?, cancelled: Bool) {
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
-        popup.addItem(withTitle: "New Session")
-        for s in sessions { popup.addItem(withTitle: "\(s.name)  \(s.id)") }
-        popup.selectItem(at: 0)
-
-        let alert = NSAlert()
-        alert.messageText = "Open tmux Window"
-        alert.informativeText = "Join an existing session's windows, or start a new session."
-        alert.accessoryView = popup
-        alert.addButton(withTitle: "Open")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return (nil, true) }
-        let idx = popup.indexOfSelectedItem
-        return (idx == 0 ? nil : sessions[idx - 1].id, false)
     }
 
     private func tearDownAll() {
