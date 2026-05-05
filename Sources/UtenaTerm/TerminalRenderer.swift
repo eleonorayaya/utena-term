@@ -201,7 +201,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         graphics: GhosttyKittyGraphics,
         terminal: GhosttyTerminal,
         cellW: CGFloat, cellH: CGFloat,
-        vpW: CGFloat, vpH: CGFloat
+        vpW: CGFloat, vpH: CGFloat,
+        padX: CGFloat, padY: CGFloat
     ) {
         guard let enc = currentEncoder else { return }
         var iterHandle: GhosttyKittyGraphicsPlacementIterator?
@@ -235,8 +236,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
             }
             enc.setFragmentTexture(tex, index: 2)
 
-            let destX = CGFloat(info.viewport_col) * cellW
-            let destY = vpH - CGFloat(info.viewport_row + Int32(info.grid_rows)) * cellH
+            let destX = padX + CGFloat(info.viewport_col) * cellW
+            let destY = vpH - padY - CGFloat(info.viewport_row + Int32(info.grid_rows)) * cellH
             let destW = CGFloat(info.grid_cols) * cellW
             let destH = CGFloat(info.grid_rows) * cellH
 
@@ -280,6 +281,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         let vpH = view.bounds.height
         let cw = tv.cellWidth
         let ch = tv.cellHeight
+        let padX = tv.padX
+        let padY = tv.padY
 
         guard let cb = commandQueue.makeCommandBuffer(),
               let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
@@ -293,7 +296,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
             tv.bridge.withKittyGraphics { graphics, terminal in
                 self.emitKittyPass(
                     layer: layer, graphics: graphics, terminal: terminal,
-                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH
+                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH, padX: padX, padY: padY
                 )
                 self.flushVertices()
             }
@@ -310,7 +313,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                 withUnsafeMutablePointer(to: &cells) { cp in
                     _ = ghostty_render_state_row_get(iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, UnsafeMutableRawPointer(cp))
                 }
-                let rowY = vpH - CGFloat(rowIndex + 1) * ch
+                let rowY = vpH - padY - CGFloat(rowIndex + 1) * ch
 
                 cellInfos.removeAll(keepingCapacity: true)
                 rowText.removeAll(keepingCapacity: true)
@@ -352,7 +355,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
                 // Emit backgrounds
                 for (col, info) in cellInfos.enumerated() {
-                    let cellX = CGFloat(col) * cw
+                    let cellX = padX + CGFloat(col) * cw
                     if let bgColor = info.bgVec {
                         let se = atlas.solidEntry
                         emitQuad(x: cellX, y: rowY, w: cw, h: ch,
@@ -367,11 +370,11 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                 let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
                 let savedRowY = rowY
                 for (col, info) in cellInfos.enumerated() {
-                    let cellX = CGFloat(col) * cw
+                    let cellX = padX + CGFloat(col) * cw
                     if let rowGlyph = rowGlyphs[col] {
                         let entry = rowGlyph.entry
                         emitQuad(
-                            x: cellX, y: savedRowY,
+                            x: cellX + CGFloat(entry.xOffset), y: savedRowY,
                             w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
                             u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
                             color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
@@ -394,8 +397,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
         // --- Cursor ---
         if let cursor = tv.bridge.cursorState() {
-            let cx = CGFloat(cursor.x) * cw
-            let cy = vpH - CGFloat(cursor.y + 1) * ch
+            let cx = padX + CGFloat(cursor.x) * cw
+            let cy = vpH - padY - CGFloat(cursor.y + 1) * ch
             let white = SIMD4<Float>(1, 1, 1, 0.8)
             let se = atlas.solidEntry
             switch cursor.style {

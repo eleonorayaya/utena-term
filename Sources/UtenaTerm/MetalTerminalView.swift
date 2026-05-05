@@ -14,6 +14,8 @@ final class MetalTerminalView: MTKView {
     var cellHeight: CGFloat = 0
     var cellAscent: CGFloat = 0
     var renderer: TerminalRenderer?
+    let padX: CGFloat = 8
+    let padY: CGFloat = 6
 
     override init(frame: NSRect, device: MTLDevice?) {
         font = CTFontCreateWithName("MesloLGS Nerd Font Mono" as CFString, 13, nil)
@@ -44,8 +46,8 @@ final class MetalTerminalView: MTKView {
         cellHeight = max(1, ((ascent + descent + leading) * scale).rounded()) / scale
     }
 
-    var gridCols: UInt16 { UInt16(max(1, Int(bounds.width / cellWidth))) }
-    var gridRows: UInt16 { UInt16(max(1, Int(bounds.height / cellHeight))) }
+    var gridCols: UInt16 { UInt16(max(1, Int((bounds.width - 2 * padX) / cellWidth))) }
+    var gridRows: UInt16 { UInt16(max(1, Int((bounds.height - 2 * padY) / cellHeight))) }
 
     var backingScale: CGFloat {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
