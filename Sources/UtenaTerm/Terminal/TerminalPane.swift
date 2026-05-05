@@ -7,6 +7,11 @@ final class TerminalPane {
     let pty: PtyManager
     let view: MetalTerminalView
 
+    var appearance: PaneAppearance? {
+        get { view.backgroundAppearance }
+        set { view.backgroundAppearance = newValue }
+    }
+
     init(cols: UInt16, rows: UInt16) {
         bridge = try! GhosttyBridge(cols: cols, rows: rows)
         let device = MTLCreateSystemDefaultDevice()!
