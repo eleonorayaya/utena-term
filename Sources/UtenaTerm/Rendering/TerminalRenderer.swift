@@ -66,15 +66,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
     weak var termView: MetalTerminalView?
     private var atlas: GlyphAtlas!
+    private var rowShaper: RowShaper!
     private var kittyCache: KittyTextureCache!
-
-    // Scratch buffers for the row loop — hoisted to avoid per-frame heap allocations
-    private struct CellInfo {
-        var fgVec: SIMD4<Float>
-        var bgVec: SIMD4<Float>?
-    }
-    private var cellInfos: [CellInfo] = []
-    private var rowText = ""
 
     init(device: MTLDevice, view: MetalTerminalView) {
         self.device = device
@@ -123,7 +116,16 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
         super.init()
         atlas = GlyphAtlas(device: device, font: view.font, cellWidth: view.cellWidth, cellHeight: view.cellHeight, backingScale: view.backingScale)
+        rowShaper = RowShaper(font: view.font)
         kittyCache = KittyTextureCache(device: device)
+    }
+
+    // Re-create glyph atlas + shaper against the view's current font/metrics/scale.
+    // Call after backing-scale change so caches keyed by old metrics don't render at wrong pitch.
+    func invalidateGlyphState() {
+        guard let view = termView else { return }
+        atlas = GlyphAtlas(device: device, font: view.font, cellWidth: view.cellWidth, cellHeight: view.cellHeight, backingScale: view.backingScale)
+        rowShaper = RowShaper(font: view.font)
     }
 
     func resize(width: Int, height: Int) {}
@@ -157,22 +159,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         vertices.append(tr)
         vertices.append(br)
         vertices.append(bl)
-    }
-
-    // MARK: - Color resolver
-
-    private func resolveColor(
-        _ color: GhosttyStyleColor,
-        colors: GhosttyRenderStateColors,
-        fallback: GhosttyColorRgb
-    ) -> GhosttyColorRgb {
-        switch color.tag {
-        case GHOSTTY_STYLE_COLOR_RGB:    return color.value.rgb
-        case GHOSTTY_STYLE_COLOR_PALETTE:
-            let idx = Int(color.value.palette)
-            return withUnsafeBytes(of: colors.palette) { $0.bindMemory(to: GhosttyColorRgb.self)[idx] }
-        default: return fallback
-        }
     }
 
     // MARK: - Flush helpers
@@ -262,8 +248,8 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
               let drawable = view.currentDrawable,
               let rpd = view.currentRenderPassDescriptor else { return }
 
-        tv.bridge.updateRenderState()
-        let colors = tv.bridge.colors
+        let snapshot = tv.bridge.snapshotViewport()
+        let colors = snapshot.colors
         let bg = colors.background
         rpd.colorAttachments[0].clearColor = MTLClearColor(
             red:   Double(bg.r) / 255,
@@ -305,89 +291,38 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG)
 
         // --- Cell backgrounds and text ---
-        tv.bridge.withRowIterator { iter, cellsHandle in
-            var cells = cellsHandle
-            var rowIndex = 0
-            while ghostty_render_state_row_iterator_next(iter) {
-                withUnsafeMutablePointer(to: &cells) { cp in
-                    _ = ghostty_render_state_row_get(iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, UnsafeMutableRawPointer(cp))
+        let solid = atlas.solidEntry
+        for (rowIndex, row) in snapshot.rows.enumerated() {
+            let rowY = vpH - padY - CGFloat(rowIndex + 1) * ch
+            let rowGlyphs = rowShaper.layout(text: row.rowText, cellWidth: cw, atlas: atlas)
+            for (col, cell) in row.cells.enumerated() {
+                let cellX = padX + CGFloat(col) * cw
+                if let bgColor = cell.bg {
+                    emitQuad(x: cellX, y: rowY, w: cw, h: ch,
+                             u0: solid.u0, v0: solid.v0, u1: solid.u1, v1: solid.v1,
+                             color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
                 }
-                let rowY = vpH - padY - CGFloat(rowIndex + 1) * ch
-
-                cellInfos.removeAll(keepingCapacity: true)
-                rowText.removeAll(keepingCapacity: true)
-
-                while ghostty_render_state_row_cells_next(cells) {
-                    var graphemeLen: UInt32 = 0
-                    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &graphemeLen)
-                    var style = GhosttyStyle()
-                    style.size = MemoryLayout<GhosttyStyle>.size
-                    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style)
-
-                    var codepoints = [UInt32](repeating: 0, count: max(1, Int(graphemeLen)))
-                    if graphemeLen > 0 {
-                        _ = codepoints.withUnsafeMutableBufferPointer { buf in
-                            ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, UnsafeMutableRawPointer(buf.baseAddress!))
-                        }
-                    }
-
-                    let textScalar: Unicode.Scalar
-                    if graphemeLen > 0, let s = Unicode.Scalar(codepoints[0]) {
-                        textScalar = s
-                    } else {
-                        textScalar = Unicode.Scalar(0x20)!
-                    }
-                    rowText.unicodeScalars.append(textScalar)
-
-                    let fg = resolveColor(style.fg_color, colors: colors, fallback: colors.foreground)
-                    let fgVec = SIMD4<Float>(Float(fg.r)/255, Float(fg.g)/255, Float(fg.b)/255, 1)
-
-                    let cellBg = resolveColor(style.bg_color, colors: colors, fallback: bg)
-                    let bgVec: SIMD4<Float>?
-                    if cellBg.r != bg.r || cellBg.g != bg.g || cellBg.b != bg.b {
-                        bgVec = SIMD4<Float>(Float(cellBg.r)/255, Float(cellBg.g)/255, Float(cellBg.b)/255, 1)
-                    } else {
-                        bgVec = nil
-                    }
-                    cellInfos.append(CellInfo(fgVec: fgVec, bgVec: bgVec))
+                if let rowGlyph = rowGlyphs[col] {
+                    let entry = rowGlyph.entry
+                    emitQuad(
+                        x: cellX, y: rowY,
+                        w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
+                        u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
+                        color: rowGlyph.isColor ? .init(1,1,1,1) : cell.fg,
+                        mode: rowGlyph.isColor ? 1 : 0,
+                        vpW: vpW, vpH: vpH
+                    )
                 }
-
-                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
-                let solid = atlas.solidEntry
-                for (col, info) in cellInfos.enumerated() {
-                    let cellX = padX + CGFloat(col) * cw
-                    if let bgColor = info.bgVec {
-                        emitQuad(x: cellX, y: rowY, w: cw, h: ch,
-                                 u0: solid.u0, v0: solid.v0, u1: solid.u1, v1: solid.v1,
-                                 color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
-                    }
-                    if let rowGlyph = rowGlyphs[col] {
-                        let entry = rowGlyph.entry
-                        emitQuad(
-                            x: cellX, y: rowY,
-                            w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
-                            u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
-                            color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
-                            mode: rowGlyph.isColor ? 1 : 0,
-                            vpW: vpW, vpH: vpH
-                        )
-                    }
-                }
-                rowIndex += 1
-
-                var clean = false
-                ghostty_render_state_row_set(iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean)
             }
         }
 
-        // Flush text/bg vertices before below-text Kitty pass
         flushVertices(into: enc)
 
         // --- Kitty BELOW_TEXT pass ---
         runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT)
 
         // --- Cursor ---
-        if let cursor = tv.bridge.cursorState() {
+        if let cursor = snapshot.cursor {
             let cx = padX + CGFloat(cursor.x) * cw
             let cy = vpH - padY - CGFloat(cursor.y + 1) * ch
             let white = SIMD4<Float>(1, 1, 1, 0.8)
