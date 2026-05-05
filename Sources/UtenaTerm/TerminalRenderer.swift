@@ -316,7 +316,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
             }
         }
 
-        // Flush text/bg vertices before below-text Kitty pass
         flushVertices(into: enc)
 
         // --- Kitty BELOW_TEXT pass ---

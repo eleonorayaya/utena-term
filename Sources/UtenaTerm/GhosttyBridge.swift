@@ -19,6 +19,8 @@ final class GhosttyBridge {
     var sizeProvider: (() -> GhosttySizeReportSize)?
     var onPtyWrite: ((Data) -> Void)?
 
+    private var codepointsScratch: [UInt32] = []
+
     init(cols: UInt16, rows: UInt16, maxScrollback: Int = 10_000) throws {
         let opts = GhosttyTerminalOptions(cols: cols, rows: rows, max_scrollback: maxScrollback)
         var term: GhosttyTerminal?
@@ -136,9 +138,6 @@ final class GhosttyBridge {
 
     func snapshotViewport() -> ViewportSnapshot {
         _ = updateRenderState()
-        let snapshotColors = colors
-        let bg = snapshotColors.background
-
         var rows: [RowSnapshot] = []
         withRowIterator { iter, cellsHandle in
             var cells = cellsHandle
@@ -146,20 +145,17 @@ final class GhosttyBridge {
                 withUnsafeMutablePointer(to: &cells) { cp in
                     _ = ghostty_render_state_row_get(iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, UnsafeMutableRawPointer(cp))
                 }
-                rows.append(decodeRow(cells: cells, colors: snapshotColors, defaultBg: bg))
+                rows.append(decodeRow(cells: cells))
 
                 var clean = false
                 ghostty_render_state_row_set(iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean)
             }
         }
-        return ViewportSnapshot(rows: rows, cursor: cursorState(), colors: snapshotColors)
+        return ViewportSnapshot(rows: rows, cursor: cursorState(), colors: colors)
     }
 
-    private func decodeRow(
-        cells: GhosttyRenderStateRowCells,
-        colors snapshotColors: GhosttyRenderStateColors,
-        defaultBg bg: GhosttyColorRgb
-    ) -> RowSnapshot {
+    private func decodeRow(cells: GhosttyRenderStateRowCells) -> RowSnapshot {
+        let bg = colors.background
         var snapshotCells: [CellSnapshot] = []
         var rowText = ""
         while ghostty_render_state_row_cells_next(cells) {
@@ -169,25 +165,31 @@ final class GhosttyBridge {
             style.size = MemoryLayout<GhosttyStyle>.size
             ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style)
 
-            var codepoints = [UInt32](repeating: 0, count: max(1, Int(graphemeLen)))
+            // Reuse a hoisted scratch buffer rather than allocating per cell. The C call
+            // writes graphemeLen UInt32s; we only read the first, but the buffer must be
+            // large enough to receive the full grapheme cluster.
+            let needed = max(1, Int(graphemeLen))
+            if codepointsScratch.count < needed {
+                codepointsScratch = [UInt32](repeating: 0, count: needed)
+            }
             if graphemeLen > 0 {
-                _ = codepoints.withUnsafeMutableBufferPointer { buf in
+                _ = codepointsScratch.withUnsafeMutableBufferPointer { buf in
                     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, UnsafeMutableRawPointer(buf.baseAddress!))
                 }
             }
 
             let scalar: Unicode.Scalar
-            if graphemeLen > 0, let s = Unicode.Scalar(codepoints[0]) {
+            if graphemeLen > 0, let s = Unicode.Scalar(codepointsScratch[0]) {
                 scalar = s
             } else {
                 scalar = Unicode.Scalar(0x20)!
             }
             rowText.unicodeScalars.append(scalar)
 
-            let fg = resolveColor(style.fg_color, colors: snapshotColors, fallback: snapshotColors.foreground)
+            let fg = resolveColor(style.fg_color, colors: colors, fallback: colors.foreground)
             let fgVec = SIMD4<Float>(Float(fg.r)/255, Float(fg.g)/255, Float(fg.b)/255, 1)
 
-            let cellBg = resolveColor(style.bg_color, colors: snapshotColors, fallback: bg)
+            let cellBg = resolveColor(style.bg_color, colors: colors, fallback: bg)
             let bgVec: SIMD4<Float>?
             if cellBg.r != bg.r || cellBg.g != bg.g || cellBg.b != bg.b {
                 bgVec = SIMD4<Float>(Float(cellBg.r)/255, Float(cellBg.g)/255, Float(cellBg.b)/255, 1)

@@ -94,15 +94,15 @@ final class GlyphAtlas {
 
     var solidEntry: AtlasEntry { AtlasEntry(u0: 0, v0: 0, u1: 1/Float(Self.atlasSize), v1: 1/Float(Self.atlasSize), pointWidth: 1, pointHeight: 1, pixelWidth: 1, pixelHeight: 1) }
 
-    /// Lookup or rasterize the atlas entry for a glyph. The cache key encodes color and
-    /// icon-fit variants so the same glyph index can have distinct rasterizations.
     func entry(forGlyph glyph: CGGlyph, font: CTFont, isIcon: Bool) -> (AtlasEntry, Bool)? {
+        // Try both caches before the path query — color/gray caches don't share keys, so
+        // we don't need to know isColor up front. CTFontCreatePathForGlyph is cheap but
+        // not free; skipping it on cache hits matters for the per-frame hot path.
+        let baseKey = UInt32(glyph) | (isIcon ? 0x4000_0000 : 0)
+        if let e = grayCache[baseKey] { return (e, false) }
+        if let e = colorCache[baseKey | 0x8000_0000] { return (e, true) }
         let isColor = CTFontCreatePathForGlyph(font, glyph, nil) == nil
-        let cacheKey = UInt32(glyph)
-            | (isColor ? 0x8000_0000 : 0)
-            | (isIcon ? 0x4000_0000 : 0)
-        if isColor, let e = colorCache[cacheKey] { return (e, true) }
-        if !isColor, let e = grayCache[cacheKey] { return (e, false) }
+        let cacheKey = baseKey | (isColor ? 0x8000_0000 : 0)
         guard let e = rasterizeCore(glyph: glyph, glyphFont: font, color: isColor, isIcon: isIcon) else { return nil }
         if isColor { colorCache[cacheKey] = e } else { grayCache[cacheKey] = e }
         return (e, isColor)
@@ -122,7 +122,7 @@ final class GlyphAtlas {
         var bbox = CGRect.zero
         CTFontGetBoundingRectsForGlyphs(glyphFont, .horizontal, &g, &bbox, 1)
         guard bbox.width > 0, bbox.height > 0 else { return nil }
-        let scale = (cellHeight * 0.75) / bbox.height
+        let scale = (cellHeight * 0.65) / bbox.height
         let scaledW = bbox.width * scale
         let canvasW = max(cellWidth, ceil(scaledW + cellWidth * 0.5))
         let tx = -bbox.minX * scale

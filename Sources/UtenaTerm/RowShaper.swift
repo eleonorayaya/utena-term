@@ -6,6 +6,9 @@ final class RowShaper {
     private var scratchGlyphs: [CGGlyph] = []
     private var scratchAdvances: [CGSize] = []
     private var scratchIndices: [CFIndex] = []
+    private var charToCol: [Int: Int] = [:]
+    private var colToScalar: [Int: UInt32] = [:]
+    private var result: [Int: GlyphAtlas.RowGlyph] = [:]
 
     init(font: CTFont) {
         self.font = font
@@ -20,8 +23,9 @@ final class RowShaper {
         let line = CTLineCreateWithAttributedString(attrStr)
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
 
-        var charToCol: [Int: Int] = [:]
-        var colToScalar: [Int: UInt32] = [:]
+        charToCol.removeAll(keepingCapacity: true)
+        colToScalar.removeAll(keepingCapacity: true)
+        result.removeAll(keepingCapacity: true)
         var utf16Offset = 0
         var col = 0
         for scalar in text.unicodeScalars {
@@ -34,8 +38,6 @@ final class RowShaper {
             utf16Offset += utf16len
             col += 1
         }
-
-        var result: [Int: GlyphAtlas.RowGlyph] = [:]
 
         for run in runs {
             let count = CTRunGetGlyphCount(run)
