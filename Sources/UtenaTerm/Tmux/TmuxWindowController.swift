@@ -6,6 +6,7 @@ final class TmuxWindowController: NSWindowController {
     private var panes: [String: TmuxPane] = [:]
     private var windowPanes: [String: [String]] = [:]   // windowID → DFS-ordered pane IDs
     private var tabItems: [String: NSTabViewItem] = [:]  // windowID → tab item
+    private(set) var orderedWindowIDs: [String] = []
     private var focusedPane: TmuxPane?
     private var currentWindowID: String?
     private var lastRefreshedSize: (cols: Int, rows: Int) = (0, 0)
@@ -195,6 +196,7 @@ final class TmuxWindowController: NSWindowController {
         tabItems.removeAll()
         panes.removeAll()
         windowPanes.removeAll()
+        orderedWindowIDs.removeAll()
         focusedPane = nil
         currentWindowID = nil
         lastRefreshedSize = (0, 0)
@@ -249,12 +251,16 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         item.label = windowID
         tabItems[windowID] = item
         tabView.addTabViewItem(item)
+        if !orderedWindowIDs.contains(windowID) {
+            orderedWindowIDs.append(windowID)
+        }
     }
 
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String) {
         if let item = tabItems.removeValue(forKey: windowID) {
             tabView.removeTabViewItem(item)
         }
+        orderedWindowIDs.removeAll { $0 == windowID }
         let removedIDs = windowPanes.removeValue(forKey: windowID) ?? []
         for id in removedIDs {
             if focusedPane?.paneID == id { focusedPane = nil }
