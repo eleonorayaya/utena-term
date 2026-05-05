@@ -51,12 +51,20 @@ final class TmuxWindowController: NSWindowController {
             return
         }
 
-        let sessions = TmuxControlSession.listExistingSessions(tmuxPath: tmuxPath)
+        let daemonSessions = syncAwait { try await UtenaDaemonClient.shared.fetchOnce() } ?? []
+        let pickerResult = SessionPickerController.run(sessions: daemonSessions)
         var groupTarget: String?
-        if !sessions.isEmpty {
-            let result = pickSession(from: sessions)
-            if result.cancelled { win.close(); return }
-            groupTarget = result.target
+
+        switch pickerResult {
+        case .cancel:
+            win.close(); return
+        case .attach(let session):
+            guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
+            groupTarget = tmuxName
+        case .create(let name, let workspaceId):
+            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId) }),
+                  let tmuxName = s.tmuxSession?.name else { win.close(); return }
+            groupTarget = tmuxName
         }
 
         do {
@@ -180,24 +188,6 @@ final class TmuxWindowController: NSWindowController {
                 applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
             }
         }
-    }
-
-    private func pickSession(from sessions: [(id: String, name: String)]) -> (target: String?, cancelled: Bool) {
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
-        popup.addItem(withTitle: "New Session")
-        for s in sessions { popup.addItem(withTitle: "\(s.name)  \(s.id)") }
-        popup.selectItem(at: 0)
-
-        let alert = NSAlert()
-        alert.messageText = "Open tmux Window"
-        alert.informativeText = "Join an existing session's windows, or start a new session."
-        alert.accessoryView = popup
-        alert.addButton(withTitle: "Open")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return (nil, true) }
-        let idx = popup.indexOfSelectedItem
-        return (idx == 0 ? nil : sessions[idx - 1].id, false)
     }
 
     private func tearDownAll() {
@@ -330,4 +320,17 @@ extension TmuxWindowController: TerminalWindowDelegate {
         guard let pane = focusedPane else { return }
         controlSession.killPane(target: pane.paneID)
     }
+}
+
+// Blocks the calling thread until an async throwing operation completes.
+// Use only from synchronous main-thread init (mirrors NSAlert.runModal() behavior).
+private func syncAwait<T>(_ work: @Sendable @escaping () async throws -> T) -> T? {
+    var result: T?
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        result = try? await work()
+        sem.signal()
+    }
+    sem.wait()
+    return result
 }

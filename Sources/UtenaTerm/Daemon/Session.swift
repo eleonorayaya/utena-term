@@ -102,3 +102,7 @@ enum ClaudeSessionStatus: String, Codable {
     case needsAttention = "needs_attention"
     case readyForReview = "ready_for_review"
 }
+
+struct WorkspacesResponse: Codable {
+    let workspaces: [Workspace]
+}

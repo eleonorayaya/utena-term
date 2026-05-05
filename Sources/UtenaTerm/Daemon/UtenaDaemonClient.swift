@@ -38,11 +38,40 @@ actor UtenaDaemonClient {
         pollingTask = nil
     }
 
+    func fetchOnce() async throws -> [Session] {
+        try await Self.fetchSessions(baseURL: baseURL)
+    }
+
+    func fetchWorkspaces() async throws -> [Workspace] {
+        let url = baseURL.appendingPathComponent("workspaces")
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try Self.decoder.decode(WorkspacesResponse.self, from: data).workspaces
+    }
+
+    func createSession(name: String, workspaceId: UInt) async throws -> Session {
+        let url = baseURL.appendingPathComponent("sessions")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try Self.encoder.encode(CreateSessionRequest(name: name, workspaceId: workspaceId))
+        let (data, _) = try await URLSession.shared.data(for: req)
+        var created = try Self.decoder.decode(Session.self, from: data)
+        for _ in 0 ..< 20 {
+            if created.status == .active { return created }
+            try await Task.sleep(nanoseconds: 500_000_000)
+            let sessions = try await Self.fetchSessions(baseURL: baseURL)
+            if let updated = sessions.first(where: { $0.id == created.id }) { created = updated }
+        }
+        return created
+    }
+
     private static func fetchSessions(baseURL: URL) async throws -> [Session] {
         let url = baseURL.appendingPathComponent("sessions")
         let (data, _) = try await URLSession.shared.data(from: url)
         return try decoder.decode(SessionsResponse.self, from: data).sessions
     }
+
+    private static let encoder = JSONEncoder()
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -102,4 +131,14 @@ private struct AnyKey: CodingKey {
     var intValue: Int? { nil }
     init(stringValue: String) { self.stringValue = stringValue }
     init?(intValue _: Int) { return nil }
+}
+
+private struct CreateSessionRequest: Encodable {
+    let name: String
+    let workspaceId: UInt
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case workspaceId = "workspace_id"
+    }
 }
