@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import simd
 import GhosttyVt
 
 struct CursorState {
@@ -131,6 +132,71 @@ final class GhosttyBridge {
         }
 
         body(iterHandle, cellsHandle)
+    }
+
+    func snapshotViewport() -> ViewportSnapshot {
+        _ = updateRenderState()
+        let snapshotColors = colors
+        let bg = snapshotColors.background
+
+        var rows: [RowSnapshot] = []
+        withRowIterator { iter, cellsHandle in
+            var cells = cellsHandle
+            while ghostty_render_state_row_iterator_next(iter) {
+                withUnsafeMutablePointer(to: &cells) { cp in
+                    _ = ghostty_render_state_row_get(iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, UnsafeMutableRawPointer(cp))
+                }
+                rows.append(decodeRow(cells: cells, colors: snapshotColors, defaultBg: bg))
+
+                var clean = false
+                ghostty_render_state_row_set(iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean)
+            }
+        }
+        return ViewportSnapshot(rows: rows, cursor: cursorState(), colors: snapshotColors)
+    }
+
+    private func decodeRow(
+        cells: GhosttyRenderStateRowCells,
+        colors snapshotColors: GhosttyRenderStateColors,
+        defaultBg bg: GhosttyColorRgb
+    ) -> RowSnapshot {
+        var snapshotCells: [CellSnapshot] = []
+        var rowText = ""
+        while ghostty_render_state_row_cells_next(cells) {
+            var graphemeLen: UInt32 = 0
+            ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &graphemeLen)
+            var style = GhosttyStyle()
+            style.size = MemoryLayout<GhosttyStyle>.size
+            ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style)
+
+            var codepoints = [UInt32](repeating: 0, count: max(1, Int(graphemeLen)))
+            if graphemeLen > 0 {
+                _ = codepoints.withUnsafeMutableBufferPointer { buf in
+                    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, UnsafeMutableRawPointer(buf.baseAddress!))
+                }
+            }
+
+            let scalar: Unicode.Scalar
+            if graphemeLen > 0, let s = Unicode.Scalar(codepoints[0]) {
+                scalar = s
+            } else {
+                scalar = Unicode.Scalar(0x20)!
+            }
+            rowText.unicodeScalars.append(scalar)
+
+            let fg = resolveColor(style.fg_color, colors: snapshotColors, fallback: snapshotColors.foreground)
+            let fgVec = SIMD4<Float>(Float(fg.r)/255, Float(fg.g)/255, Float(fg.b)/255, 1)
+
+            let cellBg = resolveColor(style.bg_color, colors: snapshotColors, fallback: bg)
+            let bgVec: SIMD4<Float>?
+            if cellBg.r != bg.r || cellBg.g != bg.g || cellBg.b != bg.b {
+                bgVec = SIMD4<Float>(Float(cellBg.r)/255, Float(cellBg.g)/255, Float(cellBg.b)/255, 1)
+            } else {
+                bgVec = nil
+            }
+            snapshotCells.append(CellSnapshot(scalar: scalar, fg: fgVec, bg: bgVec))
+        }
+        return RowSnapshot(cells: snapshotCells, rowText: rowText)
     }
 
     func cursorState() -> CursorState? {
