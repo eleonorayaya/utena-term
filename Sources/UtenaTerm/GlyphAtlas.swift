@@ -8,7 +8,6 @@ struct AtlasEntry {
     var pointHeight: Int  // emit-quad height in points
     var pixelWidth: Int   // texture storage in atlas pixels (for layout/UV)
     var pixelHeight: Int  // texture storage in atlas pixels
-    var xOffset: Int = 0  // signed point offset from cell left edge (icons may overflow)
 }
 
 final class GlyphAtlas {
@@ -135,15 +134,15 @@ final class GlyphAtlas {
                (0x100000...0x10FFFD).contains(scalar)
     }
 
-    // Height-priority scale + translation that fills ~85% of cell height for icons whose
-    // natural bbox is much shorter than the cell. The canvas is widened to accept the scaled
-    // bbox so width isn't clipped; the renderer centers the wider quad on the original cell.
     private struct IconFit {
         var canvasPointW: Int
         var scale: CGFloat
         var tx: CGFloat
         var ty: CGFloat
     }
+    // Canvas anchors to the cell's left edge (no left pad) so col-0 icons stay on screen and
+    // an icon's left edge aligns with regular text in the same column. Half-cell right pad
+    // keeps the icon from kissing the following character.
     private func iconFit(glyph: CGGlyph, glyphFont: CTFont) -> IconFit? {
         var g = glyph
         var bbox = CGRect.zero
@@ -151,16 +150,19 @@ final class GlyphAtlas {
         guard bbox.width > 0, bbox.height > 0 else { return nil }
         let scale = (cellHeight * 0.75) / bbox.height
         let scaledW = bbox.width * scale
-        // Canvas anchors to the cell's left edge so col-0 icons stay on screen. Symmetric
-        // padding (¼ cell each side, ½ cell total) shifts the icon right within the canvas
-        // for visual breathing room while still allowing rightward overflow into the next cell.
-        // No left padding so the icon's left edge aligns with regular text in the same column.
-        // Right padding gives breathing room between the icon and following text.
-        let rightPad = cellWidth * 0.5
-        let canvasW = max(cellWidth, ceil(scaledW + rightPad))
+        let canvasW = max(cellWidth, ceil(scaledW + cellWidth * 0.5))
         let tx = -bbox.minX * scale
         let ty = (cellHeight - bbox.height * scale) / 2 - bbox.minY * scale
         return IconFit(canvasPointW: Int(canvasW), scale: scale, tx: tx, ty: ty)
+    }
+
+    private func applyGlyphTransform(_ ctx: CGContext, fit: IconFit?) {
+        if let fit {
+            ctx.translateBy(x: fit.tx, y: fit.ty)
+            ctx.scaleBy(x: fit.scale, y: fit.scale)
+        } else {
+            ctx.translateBy(x: 0, y: cellDescent)
+        }
     }
 
     private func rasterizeCore(glyph: CGGlyph, glyphFont: CTFont, color: Bool, isIcon: Bool = false) -> AtlasEntry? {
@@ -174,7 +176,6 @@ final class GlyphAtlas {
         let pixelW = max(1, Int(ceil(CGFloat(pointW) * scale)))
         let pixelH = max(1, Int(ceil(CGFloat(pointH) * scale)))
         let s = Self.atlasSize
-        let xOffset = 0
 
         if color {
             var pixels = [UInt8](repeating: 0, count: pixelW * pixelH * 4)
@@ -187,12 +188,7 @@ final class GlyphAtlas {
             ctx.setShouldSubpixelPositionFonts(false)
             ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.scaleBy(x: scale, y: scale)
-            if let fit = fit {
-                ctx.translateBy(x: fit.tx, y: fit.ty)
-                ctx.scaleBy(x: fit.scale, y: fit.scale)
-            } else {
-                ctx.translateBy(x: 0, y: cellDescent)
-            }
+            applyGlyphTransform(ctx, fit: fit)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocColorSlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
@@ -207,8 +203,7 @@ final class GlyphAtlas {
                 u0: Float(x)/Float(s), v0: Float(y)/Float(s),
                 u1: Float(x+pixelW)/Float(s), v1: Float(y+pixelH)/Float(s),
                 pointWidth: pointW, pointHeight: pointH,
-                pixelWidth: pixelW, pixelHeight: pixelH,
-                xOffset: xOffset
+                pixelWidth: pixelW, pixelHeight: pixelH
             )
         } else {
             var pixels = [UInt8](repeating: 0, count: pixelW * pixelH)
@@ -222,12 +217,7 @@ final class GlyphAtlas {
             ctx.setShouldSubpixelQuantizeFonts(false)
             ctx.setFillColor(CGColor(gray: 1, alpha: 1))
             ctx.scaleBy(x: scale, y: scale)
-            if let fit = fit {
-                ctx.translateBy(x: fit.tx, y: fit.ty)
-                ctx.scaleBy(x: fit.scale, y: fit.scale)
-            } else {
-                ctx.translateBy(x: 0, y: cellDescent)
-            }
+            applyGlyphTransform(ctx, fit: fit)
             CTFontDrawGlyphs(glyphFont, &g, [.zero], 1, ctx)
             guard let slot = allocGraySlot(w: pixelW, h: pixelH) else { return nil }
             let (x, y) = slot
@@ -242,8 +232,7 @@ final class GlyphAtlas {
                 u0: Float(x)/Float(s), v0: Float(y)/Float(s),
                 u1: Float(x+pixelW)/Float(s), v1: Float(y+pixelH)/Float(s),
                 pointWidth: pointW, pointHeight: pointH,
-                pixelWidth: pixelW, pixelHeight: pixelH,
-                xOffset: xOffset
+                pixelWidth: pixelW, pixelHeight: pixelH
             )
         }
     }

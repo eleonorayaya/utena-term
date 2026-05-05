@@ -353,28 +353,19 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     cellInfos.append(CellInfo(fgVec: fgVec, bgVec: bgVec))
                 }
 
-                // Emit backgrounds
+                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
+                let solid = atlas.solidEntry
                 for (col, info) in cellInfos.enumerated() {
                     let cellX = padX + CGFloat(col) * cw
                     if let bgColor = info.bgVec {
-                        let se = atlas.solidEntry
                         emitQuad(x: cellX, y: rowY, w: cw, h: ch,
-                                 u0: se.u0, v0: se.v0, u1: se.u1, v1: se.v1,
+                                 u0: solid.u0, v0: solid.v0, u1: solid.u1, v1: solid.v1,
                                  color: bgColor, mode: 0, vpW: vpW, vpH: vpH)
                     }
-                }
-
-                rowIndex += 1
-                // Store rowText and cellInfos for text pass below
-                // We do text in the same loop to avoid re-iterating
-                let rowGlyphs = atlas.layoutRow(text: rowText, cellWidth: cw)
-                let savedRowY = rowY
-                for (col, info) in cellInfos.enumerated() {
-                    let cellX = padX + CGFloat(col) * cw
                     if let rowGlyph = rowGlyphs[col] {
                         let entry = rowGlyph.entry
                         emitQuad(
-                            x: cellX + CGFloat(entry.xOffset), y: savedRowY,
+                            x: cellX, y: rowY,
                             w: CGFloat(entry.pointWidth), h: CGFloat(entry.pointHeight),
                             u0: entry.u0, v0: entry.v0, u1: entry.u1, v1: entry.v1,
                             color: rowGlyph.isColor ? .init(1,1,1,1) : info.fgVec,
@@ -383,6 +374,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                         )
                     }
                 }
+                rowIndex += 1
 
                 var clean = false
                 ghostty_render_state_row_set(iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean)
