@@ -8,6 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = TerminalWindowController()
         controllers.append(controller)
         controller.showWindow(nil)
+
+        Task {
+            await UtenaDaemonClient.shared.start()
+            for await sessions in UtenaDaemonClient.shared.sessions {
+                let summary = sessions.map { s in
+                    "\(s.name) [\(s.status.rawValue)]\(s.needsAttention ? " ⚠️" : "")"
+                }
+                print("[utena] sessions: \(summary)")
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
