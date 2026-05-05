@@ -61,8 +61,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     private var vertices: [QuadVertex] = []
     private let maxVertices = 131_072
 
-    // Current encoder for use by helper passes
-    private var currentEncoder: MTLRenderCommandEncoder?
     // Running write offset into the vertex buffer (in vertices, not bytes)
     private var vertexWriteOffset = 0
 
@@ -124,7 +122,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         )!
 
         super.init()
-        atlas = GlyphAtlas(device: device, font: view.font, backingScale: view.backingScale)
+        atlas = GlyphAtlas(device: device, font: view.font, cellWidth: view.cellWidth, cellHeight: view.cellHeight, backingScale: view.backingScale)
         kittyCache = KittyTextureCache(device: device)
     }
 
@@ -180,11 +178,12 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     // MARK: - Flush helpers
 
     /// Flush accumulated vertices to the GPU.
-    private func flushVertices() {
-        guard !vertices.isEmpty, let enc = currentEncoder else { return }
+    private func flushVertices(into enc: MTLRenderCommandEncoder) {
+        guard !vertices.isEmpty else { return }
         let stride = MemoryLayout<QuadVertex>.stride
         let byteOffset = vertexWriteOffset * stride
         let byteCount = vertices.count * stride
+        assert(byteOffset + byteCount <= vertexBuffer.length, "vertex buffer overflow (\(vertices.count) vertices, max \(maxVertices))")
         guard byteOffset + byteCount <= vertexBuffer.length else { return }
         vertexBuffer.contents().advanced(by: byteOffset).copyMemory(
             from: vertices, byteCount: byteCount
@@ -202,9 +201,9 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         terminal: GhosttyTerminal,
         cellW: CGFloat, cellH: CGFloat,
         vpW: CGFloat, vpH: CGFloat,
-        padX: CGFloat, padY: CGFloat
+        padX: CGFloat, padY: CGFloat,
+        enc: MTLRenderCommandEncoder
     ) {
-        guard let enc = currentEncoder else { return }
         var iterHandle: GhosttyKittyGraphicsPlacementIterator?
         guard ghostty_kitty_graphics_placement_iterator_new(nil, &iterHandle) == GHOSTTY_SUCCESS,
               let iter = iterHandle else { return }
@@ -232,7 +231,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
             // Flush pending text vertices before switching image texture
             if !vertices.isEmpty {
-                flushVertices()
+                flushVertices(into: enc)
             }
             enc.setFragmentTexture(tex, index: 2)
 
@@ -252,7 +251,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                      u0: u0, v0: v0, u1: u1, v1: v1,
                      color: .init(1, 1, 1, 1), mode: 2,
                      vpW: vpW, vpH: vpH)
-            flushVertices()
+            flushVertices(into: enc)
         }
     }
 
@@ -287,7 +286,6 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         guard let cb = commandQueue.makeCommandBuffer(),
               let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
 
-        currentEncoder = enc
         enc.setRenderPipelineState(pipeline)
         enc.setFragmentTexture(atlas.grayTexture, index: 0)
         enc.setFragmentTexture(atlas.colorTexture, index: 1)
@@ -296,9 +294,10 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
             tv.bridge.withKittyGraphics { graphics, terminal in
                 self.emitKittyPass(
                     layer: layer, graphics: graphics, terminal: terminal,
-                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH, padX: padX, padY: padY
+                    cellW: cw, cellH: ch, vpW: vpW, vpH: vpH, padX: padX, padY: padY,
+                    enc: enc
                 )
-                self.flushVertices()
+                self.flushVertices(into: enc)
             }
         }
 
@@ -382,7 +381,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         }
 
         // Flush text/bg vertices before below-text Kitty pass
-        flushVertices()
+        flushVertices(into: enc)
 
         // --- Kitty BELOW_TEXT pass ---
         runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT)
@@ -412,13 +411,12 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                          color: white, mode: 0, vpW: vpW, vpH: vpH)
             }
         }
-        flushVertices()
+        flushVertices(into: enc)
 
         // --- Kitty ABOVE_TEXT pass ---
         runKittyPass(GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT)
 
         enc.endEncoding()
-        currentEncoder = nil
         cb.present(drawable)
         cb.commit()
 

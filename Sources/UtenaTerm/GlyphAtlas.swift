@@ -52,21 +52,18 @@ final class GlyphAtlas {
     private var colorCache: [UInt32: AtlasEntry] = [:]
     private var colorPacker = ShelfPacker()
 
-    init(device: MTLDevice, font: CTFont, backingScale: CGFloat = 1.0) {
+    // cellWidth/cellHeight are passed in (rather than re-derived) so the atlas uses the same
+    // device-pixel-snapped values as the renderer; otherwise rounding differences between
+    // here and MetalTerminalView produce subtle alignment drift.
+    init(device: MTLDevice, font: CTFont, cellWidth: CGFloat, cellHeight: CGFloat, backingScale: CGFloat = 1.0) {
         self.device = device
         self.font = font
         self.backingScale = backingScale
 
         cellAscent = CTFontGetAscent(font)
         cellDescent = CTFontGetDescent(font)
-        let leading = CTFontGetLeading(font)
-        cellHeight = ceil(cellAscent + cellDescent + leading)
-        var mGlyph: CGGlyph = 0
-        var mChar: UniChar = UniChar(UInt8(ascii: "M"))
-        CTFontGetGlyphsForCharacters(font, &mChar, &mGlyph, 1)
-        var mAdvance = CGSize.zero
-        CTFontGetAdvancesForGlyphs(font, .horizontal, &mGlyph, &mAdvance, 1)
-        cellWidth = mAdvance.width
+        self.cellHeight = cellHeight
+        self.cellWidth = cellWidth
 
         let sz = GlyphAtlas.atlasSize
         let gd = MTLTextureDescriptor.texture2DDescriptor(

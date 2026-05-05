@@ -114,9 +114,12 @@ final class MetalTerminalView: MTKView {
         }
     }
 
+    private var scrollAccumY: CGFloat = 0
     override func scrollWheel(with event: NSEvent) {
-        let deltaRows = Int(event.scrollingDeltaY / cellHeight)
+        scrollAccumY += event.scrollingDeltaY
+        let deltaRows = Int(scrollAccumY / cellHeight)
         if deltaRows != 0 {
+            scrollAccumY -= CGFloat(deltaRows) * cellHeight
             bridge.scroll(delta: deltaRows)
             setNeedsDisplay(bounds)
         }
