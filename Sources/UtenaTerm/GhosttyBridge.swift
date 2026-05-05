@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import GhosttyVt
 
 struct CursorState {
@@ -8,11 +9,14 @@ struct CursorState {
 }
 
 final class GhosttyBridge {
-    private var terminal: GhosttyTerminal
+    private(set) var terminal: GhosttyTerminal
     private var renderState: GhosttyRenderState
     private var keyEncoder: GhosttyKeyEncoder
     private var keyEvent: GhosttyKeyEvent
     private(set) var colors: GhosttyRenderStateColors
+
+    var sizeProvider: (() -> GhosttySizeReportSize)?
+    var onPtyWrite: ((Data) -> Void)?
 
     init(cols: UInt16, rows: UInt16, maxScrollback: Int = 10_000) throws {
         let opts = GhosttyTerminalOptions(cols: cols, rows: rows, max_scrollback: maxScrollback)
@@ -46,9 +50,31 @@ final class GhosttyBridge {
         }
         keyEvent = ev
 
+        // Enable Kitty graphics storage (335 MB)
+        var kittyLimit: UInt64 = 335 * 1024 * 1024
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &kittyLimit)
+
+        // Register PNG decode callback (process-global, safe to call multiple times).
+        // ghostty_sys_set uses the same @ptrCast convention as ghostty_terminal_set:
+        // value IS the function pointer, not a pointer to it.
+        let decodeFn: GhosttySysDecodePngFn = ghosttyDecodePng
+        _ = ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, unsafeBitCast(decodeFn, to: UnsafeRawPointer?.self))
+
         var c = GhosttyRenderStateColors()
         c.size = MemoryLayout<GhosttyRenderStateColors>.size
         colors = c
+
+        // Register XTWINOPS size query and pty-write callbacks.
+        // ghostty_terminal_set takes the VALUE as void*, not a pointer to it —
+        // the Zig side does @ptrCast(value) directly into the function pointer field.
+        // For function callbacks: unsafeBitCast the fn ptr to UnsafeRawPointer?.
+        // For userdata: pass the opaque pointer directly.
+        let userdataPtr = Unmanaged.passUnretained(self).toOpaque()
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, userdataPtr)
+        let sizeFn: GhosttyTerminalSizeFn = ghosttySizeCallback
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SIZE, unsafeBitCast(sizeFn, to: UnsafeRawPointer?.self))
+        let writeFn: GhosttyTerminalWritePtyFn = ghosttyWritePtyCallback
+        _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, unsafeBitCast(writeFn, to: UnsafeRawPointer?.self))
     }
 
     deinit {
@@ -66,8 +92,8 @@ final class GhosttyBridge {
         ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal)
     }
 
-    func resize(cols: UInt16, rows: UInt16) {
-        _ = ghostty_terminal_resize(terminal, cols, rows, 0, 0)
+    func resize(cols: UInt16, rows: UInt16, cellWidthPx: UInt32 = 0, cellHeightPx: UInt32 = 0) {
+        _ = ghostty_terminal_resize(terminal, cols, rows, cellWidthPx, cellHeightPx)
         _ = ghostty_render_state_update(renderState, terminal)
     }
 
@@ -168,7 +194,84 @@ final class GhosttyBridge {
         ghostty_terminal_scroll_viewport(terminal, behavior)
     }
 
+    func withKittyGraphics(_ body: (GhosttyKittyGraphics, GhosttyTerminal) -> Void) {
+        var handle: GhosttyKittyGraphics?
+        guard ghostty_terminal_get(
+            terminal,
+            GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+            &handle
+        ) == GHOSTTY_SUCCESS, let h = handle else { return }
+        body(h, terminal)
+    }
+
     enum BridgeError: Error {
         case initFailed(String)
     }
+}
+
+// MARK: - XTWINOPS size callback (C-compatible)
+
+private func ghosttySizeCallback(
+    _ terminal: GhosttyTerminal?,
+    _ userdata: UnsafeMutableRawPointer?,
+    _ outSize: UnsafeMutablePointer<GhosttySizeReportSize>?
+) -> Bool {
+    guard let userdata, let outSize else { return false }
+    let bridge = Unmanaged<GhosttyBridge>.fromOpaque(userdata).takeUnretainedValue()
+    guard let size = bridge.sizeProvider?() else { return false }
+    outSize.pointee = size
+    return true
+}
+
+// MARK: - PTY write callback (C-compatible)
+
+private func ghosttyWritePtyCallback(
+    _ terminal: GhosttyTerminal?,
+    _ userdata: UnsafeMutableRawPointer?,
+    _ data: UnsafePointer<UInt8>?,
+    _ len: Int
+) {
+    guard let userdata, let data, len > 0 else { return }
+    let bridge = Unmanaged<GhosttyBridge>.fromOpaque(userdata).takeUnretainedValue()
+    let buffer = UnsafeBufferPointer(start: data, count: len)
+    bridge.onPtyWrite?(Data(buffer))
+}
+
+// MARK: - PNG decode callback (C-compatible, process-global)
+
+private func ghosttyDecodePng(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ allocator: UnsafePointer<GhosttyAllocator>?,
+    _ data: UnsafePointer<UInt8>?,
+    _ dataLen: Int,
+    _ out: UnsafeMutablePointer<GhosttySysImage>?
+) -> Bool {
+    guard let data, let out else { return false }
+
+    let cfData = CFDataCreateWithBytesNoCopy(nil, data, dataLen, kCFAllocatorNull)!
+    guard let src = CGImageSourceCreateWithData(cfData, nil),
+          let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return false }
+
+    let w = cgImage.width
+    let h = cgImage.height
+    let byteCount = w * h * 4
+    guard let pixelBuf = ghostty_alloc(allocator, byteCount) else { return false }
+
+    guard let ctx = CGContext(
+        data: UnsafeMutableRawPointer(pixelBuf),
+        width: w, height: h,
+        bitsPerComponent: 8, bytesPerRow: w * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        ghostty_free(allocator, pixelBuf, byteCount)
+        return false
+    }
+    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+    out.pointee.width = UInt32(w)
+    out.pointee.height = UInt32(h)
+    out.pointee.data = pixelBuf
+    out.pointee.data_len = byteCount
+    return true
 }
