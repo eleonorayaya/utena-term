@@ -25,6 +25,8 @@ final class TerminalWindowController: NSWindowController {
         win.contentView = initialPane.view
         win.makeFirstResponder(initialPane.view)
         win.center()
+        win.isOpaque = false
+        win.backgroundColor = .clear
 
         self.init(window: win)
 
