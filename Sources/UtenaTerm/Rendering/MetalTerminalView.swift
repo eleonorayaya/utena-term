@@ -26,6 +26,7 @@ final class MetalTerminalView: MTKView {
         enableSetNeedsDisplay = true
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        (layer as? CAMetalLayer)?.isOpaque = false
     }
 
     required init(coder: NSCoder) { fatalError() }
