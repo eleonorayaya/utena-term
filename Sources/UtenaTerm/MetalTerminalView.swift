@@ -70,6 +70,17 @@ final class MetalTerminalView: MTKView {
         setNeedsDisplay(bounds)
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        computeCellMetrics()
+        let scale = backingScale
+        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
+        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        renderer?.invalidateGlyphState()
+        setNeedsDisplay(bounds)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))

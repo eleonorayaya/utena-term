@@ -120,6 +120,14 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         kittyCache = KittyTextureCache(device: device)
     }
 
+    // Re-create glyph atlas + shaper against the view's current font/metrics/scale.
+    // Call after backing-scale change so caches keyed by old metrics don't render at wrong pitch.
+    func invalidateGlyphState() {
+        guard let view = termView else { return }
+        atlas = GlyphAtlas(device: device, font: view.font, cellWidth: view.cellWidth, cellHeight: view.cellHeight, backingScale: view.backingScale)
+        rowShaper = RowShaper(font: view.font)
+    }
+
     func resize(width: Int, height: Int) {}
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}

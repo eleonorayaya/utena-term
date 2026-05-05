@@ -212,11 +212,19 @@ final class GlyphAtlas {
     }
 
     private func allocGraySlot(w: Int, h: Int) -> (Int, Int)? {
-        grayPacker.alloc(w: w, h: h, atlasSize: Self.atlasSize)
+        if let s = grayPacker.alloc(w: w, h: h, atlasSize: Self.atlasSize) { return s }
+        #if DEBUG
+        assertionFailure("gray atlas full — implement page rollover")
+        #endif
+        return nil
     }
 
     private func allocColorSlot(w: Int, h: Int) -> (Int, Int)? {
-        colorPacker.alloc(w: w, h: h, atlasSize: Self.atlasSize)
+        if let s = colorPacker.alloc(w: w, h: h, atlasSize: Self.atlasSize) { return s }
+        #if DEBUG
+        assertionFailure("color atlas full — implement page rollover")
+        #endif
+        return nil
     }
 
     struct RowGlyph {
