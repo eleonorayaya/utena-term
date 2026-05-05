@@ -179,7 +179,6 @@ extension SessionPickerController: NSTableViewDataSource, NSTableViewDelegate {
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { 46 }
 }
 
 // MARK: - SessionTableViewDelegate
@@ -205,34 +204,24 @@ final class SessionTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 36:  // Return
-            pickerDelegate?.sessionTableViewDidPressReturn(self)
-        case 53:  // Escape
-            pickerDelegate?.sessionTableViewDidPressEscape(self)
-        case 125: // ↓ / j
-            let next = min(selectedRow + 1, numberOfRows - 1)
-            selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
-            scrollRowToVisible(next)
-        case 126: // ↑ / k
-            let prev = max(selectedRow - 1, 0)
-            selectRowIndexes(IndexSet(integer: prev), byExtendingSelection: false)
-            scrollRowToVisible(prev)
+        case 36: pickerDelegate?.sessionTableViewDidPressReturn(self)
+        case 53: pickerDelegate?.sessionTableViewDidPressEscape(self)
+        case 125: move(by: +1)
+        case 126: move(by: -1)
         default:
-            let ch = event.charactersIgnoringModifiers ?? ""
-            if ch == "j" {
-                let next = min(selectedRow + 1, numberOfRows - 1)
-                selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
-                scrollRowToVisible(next)
-            } else if ch == "k" {
-                let prev = max(selectedRow - 1, 0)
-                selectRowIndexes(IndexSet(integer: prev), byExtendingSelection: false)
-                scrollRowToVisible(prev)
-            } else if ch == "n" {
-                pickerDelegate?.sessionTableViewDidPressN(self)
-            } else {
-                super.keyDown(with: event)
+            switch event.charactersIgnoringModifiers {
+            case "j": move(by: +1)
+            case "k": move(by: -1)
+            case "n": pickerDelegate?.sessionTableViewDidPressN(self)
+            default:  super.keyDown(with: event)
             }
         }
+    }
+
+    private func move(by delta: Int) {
+        let row = max(0, min(selectedRow + delta, numberOfRows - 1))
+        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        scrollRowToVisible(row)
     }
 }
 

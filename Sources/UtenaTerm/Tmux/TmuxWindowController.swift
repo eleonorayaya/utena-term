@@ -111,13 +111,10 @@ final class TmuxWindowController: NSWindowController {
             item.view = rootView
             tabItems[windowID] = item
             tabView.addTabViewItem(item)
-            if !orderedWindowIDs.contains(windowID) {
-                orderedWindowIDs.append(windowID)
-            }
+            appendWindowID(windowID)
             if currentWindowID == nil {
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
-                chrome?.windowsDidChange()
             }
         }
         applySplitPositions(view: rootView, node: node, frame: containerFrame)
@@ -198,6 +195,10 @@ final class TmuxWindowController: NSWindowController {
         }
     }
 
+    private func appendWindowID(_ id: String) {
+        if !orderedWindowIDs.contains(id) { orderedWindowIDs.append(id) }
+    }
+
     private func tearDownAll() {
         for item in tabItems.values { tabView.removeTabViewItem(item) }
         tabItems.removeAll()
@@ -259,9 +260,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         item.label = windowID
         tabItems[windowID] = item
         tabView.addTabViewItem(item)
-        if !orderedWindowIDs.contains(windowID) {
-            orderedWindowIDs.append(windowID)
-        }
+        appendWindowID(windowID)
         chrome?.windowsDidChange()
     }
 

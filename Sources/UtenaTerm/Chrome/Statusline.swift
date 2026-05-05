@@ -1,11 +1,16 @@
 import AppKit
 
 final class Statusline: NSView {
-    var sessionName: String = "" { didSet { needsDisplay = true } }
-    var branchName: String? { didSet { needsDisplay = true } }
-    var attentionNames: [String] = [] { didSet { needsDisplay = true } }
+    var sessionName: String = "" { didSet { if sessionName != oldValue { needsDisplay = true } } }
+    var branchName: String? { didSet { if branchName != oldValue { needsDisplay = true } } }
+    var attentionNames: [String] = [] { didSet { if attentionNames != oldValue { needsDisplay = true } } }
 
     private var timer: Timer?
+
+    private static let bgColor = NSColor(calibratedHue: 0.83, saturation: 0.08, brightness: 0.20, alpha: 1)
+    private static let separatorColor = NSColor(white: 0.28, alpha: 1)
+    private static let pillColor = NSColor(calibratedHue: 0.83, saturation: 0.35, brightness: 0.55, alpha: 1)
+    private static let chipColor = NSColor(calibratedRed: 1, green: 0.6, blue: 0.2, alpha: 1)
 
     private static let clockFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -30,11 +35,10 @@ final class Statusline: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(calibratedHue: 0.83, saturation: 0.08, brightness: 0.20, alpha: 1).setFill()
+        Self.bgColor.setFill()
         NSBezierPath(rect: bounds).fill()
 
-        // Top separator
-        NSColor(white: 0.28, alpha: 1).setFill()
+        Self.separatorColor.setFill()
         NSBezierPath(rect: NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)).fill()
 
         let hPad: CGFloat = 10
@@ -68,7 +72,7 @@ final class Statusline: NSView {
             let sz = label.size()
             let pillRect = NSRect(x: leftX, y: bounds.midY - 9, width: sz.width + 12, height: 18)
             let pill = NSBezierPath(roundedRect: pillRect, xRadius: 4, yRadius: 4)
-            NSColor(calibratedHue: 0.83, saturation: 0.35, brightness: 0.55, alpha: 1).setFill()
+            Self.pillColor.setFill()
             pill.fill()
             label.draw(at: NSPoint(x: leftX + 6, y: pillRect.minY + (18 - sz.height) / 2))
             leftX += pillRect.width + 10
@@ -76,7 +80,7 @@ final class Statusline: NSView {
 
         let chipAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-            .foregroundColor: NSColor(calibratedRed: 1, green: 0.6, blue: 0.2, alpha: 1),
+            .foregroundColor: Self.chipColor,
         ]
         for name in attentionNames {
             let chip = NSAttributedString(string: "[\(name)]", attributes: chipAttrs)
