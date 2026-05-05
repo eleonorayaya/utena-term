@@ -111,6 +111,9 @@ final class TmuxWindowController: NSWindowController {
             item.view = rootView
             tabItems[windowID] = item
             tabView.addTabViewItem(item)
+            if !orderedWindowIDs.contains(windowID) {
+                orderedWindowIDs.append(windowID)
+            }
             if currentWindowID == nil {
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
@@ -214,6 +217,7 @@ final class TmuxWindowController: NSWindowController {
             applyLayout(String(parts[1]), forWindow: String(parts[0]))
         }
         sendRefreshClient()
+        chrome?.windowsDidChange()
     }
 
     private func setFocus(_ pane: TmuxPane) {
