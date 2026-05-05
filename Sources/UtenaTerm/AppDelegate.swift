@@ -8,16 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = TerminalWindowController()
         controllers.append(controller)
         controller.showWindow(nil)
-
-        Task {
-            await UtenaDaemonClient.shared.start()
-            for await sessions in UtenaDaemonClient.shared.sessions {
-                let summary = sessions.map { s in
-                    "\(s.name) [\(s.status.rawValue)]\(s.needsAttention ? " ⚠️" : "")"
-                }
-                print("[utena] sessions: \(summary)")
-            }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -26,7 +16,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openTmuxWindow(_ sender: Any?) {
         let controller = TmuxWindowController()
-        guard controller.isReady, let win = controller.window else { return }
+        guard let win = controller.window else { return }
+        if !controller.isReady {
+            // Picker was cancelled — open a plain terminal instead
+            let plain = TerminalWindowController()
+            controllers.append(plain)
+            plain.showWindow(nil)
+            return
+        }
         tmuxControllers.append(controller)
         NotificationCenter.default.addObserver(
             self,
