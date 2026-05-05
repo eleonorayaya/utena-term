@@ -143,14 +143,10 @@ final class SessionPickerController: NSWindowController {
     }
 
     @objc private func toggleNewForm() {
-        let hiding = !newSessionForm.isHidden
-        newSessionForm.isHidden = hiding
-        toggleFormButton.title = hiding ? "+ New" : "✕ Cancel"
-        if !newSessionForm.isHidden {
-            window?.makeFirstResponder(newSessionForm.nameField)
-        } else {
-            window?.makeFirstResponder(tableView)
-        }
+        let showing = newSessionForm.isHidden
+        newSessionForm.isHidden = !showing
+        toggleFormButton.title = showing ? "✕ Cancel" : "+ New"
+        window?.makeFirstResponder(showing ? newSessionForm.nameField : tableView)
     }
 
     @objc func openSelected() {

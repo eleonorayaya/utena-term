@@ -53,7 +53,7 @@ actor UtenaDaemonClient {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(CreateSessionRequest(name: name, workspaceId: workspaceId))
+        req.httpBody = try Self.encoder.encode(CreateSessionRequest(name: name, workspaceId: workspaceId))
         let (data, _) = try await URLSession.shared.data(for: req)
         var created = try Self.decoder.decode(Session.self, from: data)
         for _ in 0 ..< 20 {
@@ -70,6 +70,8 @@ actor UtenaDaemonClient {
         let (data, _) = try await URLSession.shared.data(from: url)
         return try decoder.decode(SessionsResponse.self, from: data).sessions
     }
+
+    private static let encoder = JSONEncoder()
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()

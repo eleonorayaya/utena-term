@@ -51,15 +51,7 @@ final class TmuxWindowController: NSWindowController {
             return
         }
 
-        // Fetch daemon sessions (synchronous via semaphore — stays on main thread like NSAlert did)
-        var daemonSessions: [Session] = []
-        let sem = DispatchSemaphore(value: 0)
-        Task.detached {
-            daemonSessions = (try? await UtenaDaemonClient.shared.fetchOnce()) ?? []
-            sem.signal()
-        }
-        sem.wait()
-
+        let daemonSessions = syncAwait { try await UtenaDaemonClient.shared.fetchOnce() } ?? []
         let pickerResult = SessionPickerController.run(sessions: daemonSessions)
         var groupTarget: String?
 
@@ -70,14 +62,8 @@ final class TmuxWindowController: NSWindowController {
             guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
             groupTarget = tmuxName
         case .create(let name, let workspaceId):
-            var created: Session?
-            let createSem = DispatchSemaphore(value: 0)
-            Task.detached {
-                created = try? await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId)
-                createSem.signal()
-            }
-            createSem.wait()
-            guard let s = created, let tmuxName = s.tmuxSession?.name else { win.close(); return }
+            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId) }),
+                  let tmuxName = s.tmuxSession?.name else { win.close(); return }
             groupTarget = tmuxName
         }
 
@@ -334,4 +320,17 @@ extension TmuxWindowController: TerminalWindowDelegate {
         guard let pane = focusedPane else { return }
         controlSession.killPane(target: pane.paneID)
     }
+}
+
+// Blocks the calling thread until an async throwing operation completes.
+// Use only from synchronous main-thread init (mirrors NSAlert.runModal() behavior).
+private func syncAwait<T>(_ work: @Sendable @escaping () async throws -> T) -> T? {
+    var result: T?
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        result = try? await work()
+        sem.signal()
+    }
+    sem.wait()
+    return result
 }
