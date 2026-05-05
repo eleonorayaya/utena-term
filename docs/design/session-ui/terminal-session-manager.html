@@ -1,0 +1,1984 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Session Manager — Mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* Cuter: softer plum, warmer cream foreground, pastel accents w/ glow */
+    --bg-0: oklch(0.20 0.026 320);
+    --bg-1: oklch(0.24 0.028 320);
+    --bg-2: oklch(0.29 0.030 320);
+    --bg-3: oklch(0.34 0.032 320);
+    --line: oklch(0.46 0.040 330 / 0.55);
+    --line-soft: oklch(0.46 0.040 330 / 0.26);
+    --fg-0: oklch(0.97 0.020 85);
+    --fg-1: oklch(0.88 0.025 80);
+    --fg-2: oklch(0.74 0.030 70);
+    --fg-3: oklch(0.60 0.040 330);
+    --fg-4: oklch(0.46 0.040 330);
+    /* Soft pastel palette — slightly more saturated */
+    --accent: oklch(0.84 0.13 345);       /* pink */
+    --accent-dim: oklch(0.76 0.11 345);
+    --accent-glow: oklch(0.84 0.13 345 / 0.18);
+    --running: oklch(0.86 0.13 165);      /* mint */
+    --warn: oklch(0.88 0.12 80);          /* peach */
+    --err: oklch(0.80 0.15 20);           /* coral */
+    --info: oklch(0.84 0.10 275);         /* lavender */
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: oklch(0.14 0.018 310); color: var(--fg-0); font-family: var(--sans); }
+  body {
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  #root { width: 100%; min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel">
+// Mock terminal "behind" the switcher — gives context that this is a terminal app.
+// Static styled lines, no animation, no real terminal.
+
+const termColors = {
+  prompt: 'var(--accent-dim)',
+  path: 'var(--info)',
+  branch: 'var(--warn)',
+  cmd: 'var(--fg-0)',
+  flag: 'var(--accent)',
+  str: 'var(--running)',
+  num: 'var(--warn)',
+  comment: 'var(--fg-3)',
+  err: 'var(--err)',
+  ok: 'var(--running)',
+  dim: 'var(--fg-3)',
+  fg: 'var(--fg-1)',
+};
+
+const Tok = ({ c, children }) => <span style={{ color: termColors[c] }}>{children}</span>;
+
+function Prompt({ path, branch, children }) {
+  return (
+    <div style={{ whiteSpace: 'pre', display: 'flex', gap: 0, flexWrap: 'wrap' }}>
+      <Tok c="dim">❯ </Tok>
+      <Tok c="path">{path}</Tok>
+      {branch && (<><Tok c="dim"> on </Tok><Tok c="branch">  {branch}</Tok></>)}
+      <Tok c="dim"> ❯ </Tok>
+      <Tok c="cmd">{children}</Tok>
+    </div>
+  );
+}
+
+function TerminalPane({ title, lines, style, accent, dim }) {
+  return (
+    <div style={{
+      background: 'var(--bg-0)',
+      border: '1px solid var(--line-soft)',
+      borderRadius: 8,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      ...style,
+    }}>
+      <div style={{
+        height: 26,
+        borderBottom: '1px solid var(--line-soft)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 12px',
+        gap: 8,
+        background: 'var(--bg-1)',
+        fontFamily: 'var(--mono)',
+        fontSize: 11,
+        color: 'var(--fg-3)',
+        letterSpacing: 0.2,
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: 99,
+          background: accent || 'var(--fg-4)',
+          boxShadow: 'none',
+        }}/>
+        <span>{title}</span>
+      </div>
+      <div style={{
+        flex: 1,
+        padding: '10px 12px',
+        fontFamily: 'var(--mono)',
+        fontSize: 11.5,
+        lineHeight: 1.55,
+        color: 'var(--fg-1)',
+        overflow: 'hidden',
+        opacity: dim ? 0.55 : 1,
+      }}>
+        {lines}
+      </div>
+    </div>
+  );
+}
+
+function TerminalBackground() {
+  // Background mockup — 3 panes laid out asymmetrically, like a real session
+  return (
+    <div style={{
+      position: 'absolute',
+      inset: 0,
+      padding: 14,
+      display: 'grid',
+      gridTemplateColumns: '1.4fr 1fr',
+      gridTemplateRows: '1fr 0.7fr',
+      gap: 10,
+      background: 'var(--bg-0)',
+    }}>
+      {/* Top-left: editor-ish */}
+      <TerminalPane
+        title="api/handlers/sessions.go — nvim"
+        accent="var(--info)"
+        style={{ gridColumn: '1', gridRow: '1 / span 2' }}
+        lines={
+          <>
+            <div><Tok c="dim"> 42 </Tok><Tok c="flag">func</Tok> <Tok c="fg">(s *Server) </Tok><Tok c="cmd">handleAttach</Tok><Tok c="fg">(w </Tok><Tok c="flag">http</Tok><Tok c="fg">.ResponseWriter, r *</Tok><Tok c="flag">http</Tok><Tok c="fg">.Request) {'{'}</Tok></div>
+            <div><Tok c="dim"> 43 </Tok><Tok c="fg">    sid := </Tok><Tok c="cmd">chi</Tok><Tok c="fg">.URLParam(r, </Tok><Tok c="str">"sid"</Tok><Tok c="fg">)</Tok></div>
+            <div><Tok c="dim"> 44 </Tok><Tok c="fg">    sess, ok := s.registry.</Tok><Tok c="cmd">Get</Tok><Tok c="fg">(sid)</Tok></div>
+            <div><Tok c="dim"> 45 </Tok><Tok c="fg">    </Tok><Tok c="flag">if</Tok><Tok c="fg"> !ok {'{'}</Tok></div>
+            <div><Tok c="dim"> 46 </Tok><Tok c="fg">        </Tok><Tok c="cmd">writeErr</Tok><Tok c="fg">(w, </Tok><Tok c="num">404</Tok><Tok c="fg">, </Tok><Tok c="str">"no such session"</Tok><Tok c="fg">)</Tok></div>
+            <div><Tok c="dim"> 47 </Tok><Tok c="fg">        </Tok><Tok c="flag">return</Tok></div>
+            <div><Tok c="dim"> 48 </Tok><Tok c="fg">    {'}'}</Tok></div>
+            <div><Tok c="dim"> 49 </Tok></div>
+            <div><Tok c="dim"> 50 </Tok><Tok c="fg">    conn, err := s.upgrader.</Tok><Tok c="cmd">Upgrade</Tok><Tok c="fg">(w, r, </Tok><Tok c="flag">nil</Tok><Tok c="fg">)</Tok></div>
+            <div><Tok c="dim"> 51 </Tok><Tok c="fg">    </Tok><Tok c="flag">if</Tok><Tok c="fg"> err != </Tok><Tok c="flag">nil</Tok><Tok c="fg"> {'{'}</Tok></div>
+            <div><Tok c="dim"> 52 </Tok><Tok c="fg">        s.log.</Tok><Tok c="cmd">Warn</Tok><Tok c="fg">(</Tok><Tok c="str">"upgrade failed"</Tok><Tok c="fg">, </Tok><Tok c="str">"err"</Tok><Tok c="fg">, err)</Tok></div>
+            <div><Tok c="dim"> 53 </Tok><Tok c="fg">        </Tok><Tok c="flag">return</Tok></div>
+            <div><Tok c="dim"> 54 </Tok><Tok c="fg">    {'}'}</Tok></div>
+            <div><Tok c="dim"> 55 </Tok><Tok c="fg">    </Tok><Tok c="flag">defer</Tok><Tok c="fg"> conn.</Tok><Tok c="cmd">Close</Tok><Tok c="fg">()</Tok></div>
+            <div><Tok c="dim"> 56 </Tok></div>
+            <div><Tok c="dim"> 57 </Tok><Tok c="fg">    pump := </Tok><Tok c="cmd">newPump</Tok><Tok c="fg">(sess, conn, s.log)</Tok></div>
+            <div><Tok c="dim"> 58 </Tok><Tok c="fg">    pump.</Tok><Tok c="cmd">Run</Tok><Tok c="fg">(r.Context())</Tok></div>
+            <div><Tok c="dim"> 59 </Tok><Tok c="fg">{'}'}</Tok></div>
+          </>
+        }
+      />
+      {/* Top-right: build/test output */}
+      <TerminalPane
+        title="~/code/utena — go test ./..."
+        accent="var(--running)"
+        style={{ gridColumn: '2', gridRow: '1' }}
+        lines={
+          <>
+            <Prompt path="~/code/utena" branch="main">go test ./internal/...</Prompt>
+            <div><Tok c="ok">ok  </Tok><Tok c="fg">  utena/internal/registry  </Tok><Tok c="dim">0.184s</Tok></div>
+            <div><Tok c="ok">ok  </Tok><Tok c="fg">  utena/internal/pty       </Tok><Tok c="dim">0.412s</Tok></div>
+            <div><Tok c="ok">ok  </Tok><Tok c="fg">  utena/internal/mux       </Tok><Tok c="dim">0.071s</Tok></div>
+            <div><Tok c="ok">ok  </Tok><Tok c="fg">  utena/internal/wire      </Tok><Tok c="dim">0.022s</Tok></div>
+            <div><Tok c="ok">ok  </Tok><Tok c="fg">  utena/internal/term      </Tok><Tok c="dim">0.103s</Tok></div>
+            <div style={{ marginTop: 6 }}><Tok c="dim">PASS · 5 packages · 0.792s total</Tok></div>
+          </>
+        }
+      />
+      {/* Bottom-right: logs */}
+      <TerminalPane
+        title="dev server · :4317"
+        accent="var(--warn)"
+        style={{ gridColumn: '2', gridRow: '2' }}
+        lines={
+          <>
+            <div><Tok c="dim">14:22:08 </Tok><Tok c="ok">INF </Tok><Tok c="fg">attach sid=ses_82a id=client_01</Tok></div>
+            <div><Tok c="dim">14:22:11 </Tok><Tok c="ok">INF </Tok><Tok c="fg">window.create sid=ses_82a name=logs</Tok></div>
+            <div><Tok c="dim">14:22:34 </Tok><Tok c="num">WRN </Tok><Tok c="fg">pty.resize backpressure 12ms</Tok></div>
+            <div><Tok c="dim">14:23:02 </Tok><Tok c="ok">INF </Tok><Tok c="fg">detach sid=ses_77c</Tok></div>
+            <div><Tok c="dim">14:23:18 </Tok><Tok c="num">WRN </Tok><Tok c="fg">slow consumer client_04 (drop=3)</Tok></div>
+          </>
+        }
+      />
+    </div>
+  );
+}
+
+window.TerminalBackground = TerminalBackground;
+
+</script>
+<script type="text/babel">
+// The session switcher overlay — sleek floating panel.
+
+const SESSIONS = [
+  {
+    id: 'utena',
+    name: 'utena',
+    cwd: '~/code/utena',
+    branch: 'main',
+    host: 'local',
+    pinned: [{ type: 'editor', count: 1, sub: '2●' }, { type: 'claude', count: 2, sub: '1?' }],
+    windows: 4,
+    panes: 6,
+    lastActive: 'now',
+    status: 'focused',
+    attention: null,
+    activity: [3, 5, 8, 12, 7, 4, 9, 14, 11, 6, 8, 10, 15, 9, 5, 7],
+  },
+  {
+    id: 'orpheus',
+    name: 'orpheus',
+    cwd: '~/work/orpheus-api',
+    branch: 'feat/billing-webhooks',
+    host: 'local',
+    pinned: [{ type: 'editor', count: 1, sub: '4●' }, { type: 'claude', count: 1, sub: 'thinking' }],
+    windows: 3,
+    panes: 4,
+    lastActive: '3m',
+    status: 'attention',
+    attention: { kind: 'err', label: 'tests failing', count: 4 },
+    activity: [2, 1, 0, 0, 5, 18, 22, 14, 9, 6, 11, 8, 4, 2, 1, 0],
+  },
+  {
+    id: 'edge',
+    name: 'edge-relay',
+    cwd: '~/work/edge-relay',
+    branch: 'main',
+    host: 'fly · iad',
+    pinned: [{ type: 'claude', count: 1, sub: 'awaiting' }],
+    windows: 2,
+    panes: 3,
+    lastActive: '12m',
+    status: 'attention',
+    attention: { kind: 'warn', label: 'prompt waiting', count: 1 },
+    activity: [4, 6, 8, 5, 3, 2, 4, 6, 9, 7, 5, 3, 4, 6, 8, 12],
+  },
+  {
+    id: 'dotfiles',
+    name: 'dotfiles',
+    cwd: '~/.config',
+    branch: 'main',
+    host: 'local',
+    pinned: [{ type: 'editor', count: 1, sub: '1●' }],
+    windows: 1,
+    panes: 1,
+    lastActive: '1h',
+    status: 'idle',
+    attention: null,
+    activity: [0, 0, 1, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    id: 'sshmole',
+    name: 'sshmole',
+    cwd: 'mole@build-01',
+    branch: null,
+    host: 'ssh · build-01',
+    pinned: [],
+    windows: 2,
+    panes: 4,
+    lastActive: '4m',
+    status: 'running',
+    attention: { kind: 'info', label: 'build in progress', count: null },
+    activity: [10, 12, 14, 13, 15, 14, 16, 18, 17, 16, 18, 19, 17, 18, 20, 19],
+  },
+  {
+    id: 'scratch',
+    name: 'scratch',
+    cwd: '~',
+    branch: null,
+    host: 'local',
+    pinned: [],
+    windows: 1,
+    panes: 2,
+    lastActive: '2d',
+    status: 'idle',
+    attention: null,
+    activity: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    id: 'pgsql',
+    name: 'pgsql-staging',
+    cwd: 'psql · staging',
+    branch: null,
+    host: 'ssh · db-staging',
+    pinned: [],
+    windows: 1,
+    panes: 1,
+    lastActive: '38m',
+    status: 'idle',
+    attention: null,
+    activity: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+  },
+];
+
+// The pane layout for the focused session — proportional schematic + pane metadata.
+const FOCUSED = {
+  id: 'utena',
+  // Pinned (first-class) windows. Type-tagged: nvim, claude.
+  // A session can have multiple of each. Visually distinct from ad-hoc windows
+  // but otherwise the same shape — they're still windows with panes.
+  pinned: [
+    { id: 'pin-ed', type: 'editor', name: 'edit', active: true, meta: { app: 'nvim', modified: 2, buffers: 6 }, panes: [
+      { id: 'pn1', x: 0, y: 0, w: 1, h: 1, title: 'sessions.go', cmd: 'nvim .', status: 'editor', lines: [
+        { c: 'dim', t: ' 50  conn, err := s.upgrader.Upgrade(w, r, nil)' },
+        { c: 'dim', t: ' 51  if err != nil {' },
+        { c: 'fg',  t: ' 52      s.log.Warn("upgrade failed", "err", err)' },
+        { c: 'dim', t: ' 53      return' },
+        { c: 'dim', t: ' 54  }' },
+      ]},
+    ]},
+    { id: 'pin-cc1', type: 'claude', name: 'cc·api', active: false, meta: { turns: 14, status: 'thinking' }, panes: [
+      { id: 'pcc1', x: 0, y: 0, w: 1, h: 1, title: 'claude · api refactor', cmd: 'claude', status: 'running', lines: [
+        { c: 'dim', t: '› refactor session handlers to use ctx' },
+        { c: 'fg',  t: '✻ Reading internal/registry/store.go…' },
+        { c: 'dim', t: '  thinking · 14 turns · 8.2k tok' },
+      ]},
+    ]},
+    { id: 'pin-cc2', type: 'claude', name: 'cc·tests', active: false, meta: { turns: 6, status: 'awaiting' }, panes: [
+      { id: 'pcc2', x: 0, y: 0, w: 1, h: 1, title: 'claude · flaky tests', cmd: 'claude', status: 'attention', lines: [
+        { c: 'fg',  t: '? approve: rm internal/mux/cache.go' },
+        { c: 'dim', t: '  awaiting input · 6 turns' },
+      ]},
+    ]},
+  ],
+  windows: [
+    { id: 'w1', name: 'run', active: false, panes: [
+      { id: 'p1', x: 0, y: 0, w: 0.55, h: 1, title: 'go test', cmd: 'go test ./...', status: 'ok', lines: [
+        { c: 'ok',  t: 'ok  utena/internal/mux  0.071s' },
+        { c: 'ok',  t: 'ok  utena/internal/wire 0.022s' },
+        { c: 'dim', t: 'PASS · 5 packages' },
+      ]},
+      { id: 'p2', x: 0.55, y: 0, w: 0.45, h: 1, title: 'dev server', cmd: 'air', status: 'running', lines: [
+        { c: 'dim', t: '14:23:02 INF detach sid=ses_77c' },
+        { c: 'dim', t: '14:23:18 WRN slow consumer (drop=3)' },
+        { c: 'dim', t: '14:23:41 INF attach sid=ses_82a' },
+      ]},
+    ]},
+    { id: 'w2', name: 'logs', active: false, panes: [
+      { id: 'p3', x: 0, y: 0, w: 1, h: 1, title: 'journalctl', cmd: 'journalctl -fu utena', status: 'running', lines: []},
+    ]},
+    { id: 'w3', name: 'db', active: false, panes: [
+      { id: 'p4', x: 0, y: 0, w: 0.5, h: 1, title: 'psql', cmd: 'psql utena_dev', status: 'idle', lines: []},
+      { id: 'p5', x: 0.5, y: 0, w: 0.5, h: 1, title: 'redis-cli', cmd: 'redis-cli', status: 'idle', lines: []},
+    ]},
+    { id: 'w4', name: 'shell', active: false, panes: [
+      { id: 'p6', x: 0, y: 0, w: 1, h: 1, title: 'zsh', cmd: 'zsh', status: 'idle', lines: []},
+    ]},
+  ],
+};
+
+function StatusDot({ kind, size = 7, glow = true }) {
+  const color = {
+    focused: 'var(--accent)',
+    running: 'var(--running)',
+    attention: 'var(--warn)',
+    err: 'var(--err)',
+    warn: 'var(--warn)',
+    info: 'var(--info)',
+    idle: 'var(--fg-4)',
+  }[kind] || 'var(--fg-4)';
+  const isLive = glow && kind !== 'idle';
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: size, height: size, borderRadius: 99,
+      background: color,
+      boxShadow: isLive ? `0 0 0 2px ${color.replace('var(', 'var(').replace(')', '')} 0 0 8px ${color}` : 'none',
+      filter: isLive ? `drop-shadow(0 0 4px ${color})` : 'none',
+      flexShrink: 0,
+    }} />
+  );
+}
+
+function Sparkline({ data, color = 'var(--fg-3)', width = 64, height = 16 }) {
+  const max = Math.max(1, ...data);
+  const step = width / (data.length - 1 || 1);
+  const points = data.map((v, i) => `${i * step},${height - (v / max) * (height - 2) - 1}`).join(' ');
+  return (
+    <svg width={width} height={height} style={{ display: 'block', overflow: 'visible' }}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function AttentionBadge({ a }) {
+  if (!a) return null;
+  const map = {
+    err:  { color: 'var(--err)',     bg: 'oklch(0.78 0.13 20 / 0.14)',  border: 'oklch(0.78 0.13 20 / 0.40)' },
+    warn: { color: 'var(--warn)',    bg: 'oklch(0.86 0.10 75 / 0.14)',  border: 'oklch(0.86 0.10 75 / 0.36)' },
+    info: { color: 'var(--info)',    bg: 'oklch(0.82 0.08 270 / 0.14)', border: 'oklch(0.82 0.08 270 / 0.36)' },
+  };
+  const s = map[a.kind] || map.info;
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      padding: '2px 8px',
+      borderRadius: 99,
+      background: s.bg,
+      border: `1px solid ${s.border}`,
+      color: s.color,
+      fontFamily: 'var(--mono)',
+      fontSize: 10,
+      letterSpacing: 0.2,
+      textTransform: 'lowercase',
+      whiteSpace: 'nowrap',
+    }}>
+      {a.count != null && (
+        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+          {a.count}
+        </span>
+      )}
+      <span>{a.label}</span>
+    </span>
+  );
+}
+
+function TypeIcon({ type, size = 10, color }) {
+  if (type === 'editor') {
+    // pencil / chevron-into-doc — generic editor mark, not nvim-specific
+    return (
+      <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+        <path d="M2 11 L4 9 L11 2 L13 4 L6 11 L4 13 L2 11 Z" stroke={color} strokeWidth="1.4" fill="none" strokeLinejoin="round"/>
+      </svg>
+    );
+  }
+  if (type === 'claude') {
+    // sparkle / asterisk mark — claude code's signature glyph
+    return (
+      <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+        <path d="M7 1 L7.9 5.5 L12.5 6.4 L7.9 7.3 L7 12 L6.1 7.3 L1.5 6.4 L6.1 5.5 Z" fill={color}/>
+      </svg>
+    );
+  }
+  // generic terminal — chevron
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M2.5 3.5 L6 7 L2.5 10.5 M7 10.5 L11 10.5" stroke={color} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+const TYPE_TONE = {
+  editor: { fg: 'var(--running)', bg: 'oklch(0.86 0.13 165 / 0.10)', border: 'oklch(0.86 0.13 165 / 0.32)', label: 'editor' },
+  claude: { fg: 'var(--info)',    bg: 'oklch(0.78 0.10 30 / 0.10)',  border: 'oklch(0.78 0.10 30 / 0.32)', label: 'claude' },
+  term:   { fg: 'var(--fg-2)',    bg: 'transparent',                  border: 'var(--line-soft)', label: 'term' },
+};
+
+function PinnedChips({ pinned }) {
+  if (!pinned || pinned.length === 0) return null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {pinned.map((p, i) => {
+        const tone = TYPE_TONE[p.type] || TYPE_TONE.term;
+        return (
+          <span key={i} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '1px 6px 1px 5px',
+            borderRadius: 999,
+            background: tone.bg,
+            border: `1px solid ${tone.border}`,
+            color: tone.fg,
+            fontFamily: 'var(--mono)',
+            fontSize: 9.5,
+            lineHeight: 1,
+          }}>
+            <TypeIcon type={p.type} size={8} color={tone.fg}/>
+            {p.count > 1 && <span style={{ fontWeight: 700 }}>×{p.count}</span>}
+            {p.sub && <span style={{ opacity: 0.75, fontSize: 9 }}>{p.sub}</span>}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function SessionRow({ s, focused }) {
+  const isAttention = s.status === 'attention';
+  const sparkColor = isAttention
+    ? (s.attention?.kind === 'err' ? 'var(--err)' : 'var(--warn)')
+    : s.status === 'running' ? 'var(--running)' : 'var(--fg-4)';
+  return (
+    <div style={{
+      position: 'relative',
+      display: 'grid',
+      gridTemplateColumns: '14px 1fr auto',
+      alignItems: 'center',
+      gap: 12,
+      padding: '11px 14px 11px 14px',
+      borderRadius: 12,
+      background: focused ? 'oklch(0.84 0.13 345 / 0.14)' : 'transparent',
+      border: focused ? '1px solid oklch(0.84 0.13 345 / 0.45)' : '1px solid transparent',
+      boxShadow: focused ? '0 0 24px -8px var(--accent-glow), inset 0 0 0 1px oklch(0.84 0.13 345 / 0.08)' : 'none',
+      boxShadow: 'none',
+      cursor: 'default',
+    }}>
+      {/* status indicator column */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 16 }}>
+        <StatusDot kind={focused ? 'focused' : s.status} />
+      </div>
+
+      {/* main info */}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
+          <span style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 13,
+            fontWeight: 600,
+            color: focused ? 'var(--fg-0)' : 'var(--fg-1)',
+            letterSpacing: 0.1,
+            whiteSpace: 'nowrap',
+          }}>{s.name}</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <PinnedChips pinned={s.pinned} />
+            {s.pinned && s.pinned.length > 0 && <span>·</span>}
+            <span>{s.windows}w · {s.panes}p</span>
+          </span>
+          {s.host !== 'local' && (
+            <span style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 10,
+              color: 'var(--info)',
+              border: '1px solid oklch(0.84 0.10 275 / 0.35)',
+              background: 'oklch(0.84 0.10 275 / 0.10)',
+              padding: '1px 7px',
+              borderRadius: 999,
+              letterSpacing: 0.2,
+              whiteSpace: 'nowrap',
+            }}>{s.host}</span>
+          )}
+          {focused && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontFamily: 'var(--mono)', fontSize: 10,
+              color: 'var(--accent)',
+              marginLeft: 'auto',
+              whiteSpace: 'nowrap',
+              padding: '2px 8px 2px 6px',
+              borderRadius: 999,
+              background: 'oklch(0.84 0.13 345 / 0.18)',
+              border: '1px solid oklch(0.84 0.13 345 / 0.45)',
+            }}>
+              <Kbd subtle>↵</Kbd>
+              <span>attach</span>
+            </span>
+          )}
+        </div>
+        <div style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 11,
+          color: 'var(--fg-3)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>
+          {s.cwd}
+          {s.branch && (
+            <>
+              <span style={{ color: 'var(--fg-4)' }}>  ·  </span>
+              <span style={{ color: 'var(--warn)' }}> {s.branch}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* right side: attention + sparkline + last active */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {s.attention && <AttentionBadge a={s.attention} />}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+          <Sparkline data={s.activity} color={sparkColor} />
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-3)', letterSpacing: 0.2 }}>
+            {s.lastActive}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaneSchematic({ window: w }) {
+  // Render the proportional pane layout with pane "previews"
+  const statusColor = {
+    editor: 'var(--info)',
+    running: 'var(--running)',
+    ok: 'var(--running)',
+    idle: 'var(--fg-4)',
+    err: 'var(--err)',
+  };
+  return (
+    <div style={{
+      position: 'relative',
+      width: '100%',
+      aspectRatio: '16 / 9',
+      background: 'var(--bg-0)',
+      border: '1px solid var(--line-soft)',
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      {w.panes.map((p, i) => (
+        <div key={p.id} style={{
+          position: 'absolute',
+          left: `${p.x * 100}%`,
+          top: `${p.y * 100}%`,
+          width: `${p.w * 100}%`,
+          height: `${p.h * 100}%`,
+          padding: 4,
+        }}>
+          <div style={{
+            width: '100%',
+            height: '100%',
+            background: 'var(--bg-1)',
+            border: i === 0 ? '1px solid oklch(0.84 0.13 345 / 0.55)' : '1px solid var(--line-soft)',
+            boxShadow: i === 0 ? '0 0 14px -4px var(--accent-glow)' : 'none',
+            borderRadius: 9,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <div style={{
+              height: 20,
+              borderBottom: '1px solid var(--line-soft)',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 8px',
+              gap: 6,
+              fontFamily: 'var(--mono)',
+              fontSize: 10,
+              color: 'var(--fg-2)',
+            }}>
+              <StatusDot kind={p.status === 'editor' ? 'info' : p.status === 'ok' ? 'running' : p.status} size={5} />
+              <span style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flex: 1,
+              }}>{p.title}</span>
+              <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>p{i + 1}</span>
+            </div>
+            <div style={{
+              flex: 1,
+              padding: '6px 8px',
+              fontFamily: 'var(--mono)',
+              fontSize: 9,
+              lineHeight: 1.5,
+              color: 'var(--fg-2)',
+              overflow: 'hidden',
+            }}>
+              {p.lines.map((l, j) => (
+                <div key={j} style={{
+                  color: l.c === 'ok' ? 'var(--running)' : l.c === 'dim' ? 'var(--fg-3)' : 'var(--fg-1)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>{l.t}</div>
+              ))}
+              {p.lines.length === 0 && (
+                <div style={{ color: 'var(--fg-4)', fontStyle: 'italic' }}>idle</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Kbd({ children, subtle }) {
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: subtle ? 16 : 20,
+      height: subtle ? 16 : 20,
+      padding: subtle ? '0 4px' : '0 7px',
+      borderRadius: subtle ? 6 : 7,
+      background: subtle ? 'oklch(0.34 0.020 320 / 0.6)' : 'linear-gradient(180deg, var(--bg-3), var(--bg-2))',
+      border: subtle ? '1px solid var(--line-soft)' : '1px solid var(--line)',
+      boxShadow: subtle ? 'none' : 'inset 0 1px 0 oklch(0.55 0.03 320 / 0.25), 0 1px 0 oklch(0.10 0.01 320 / 0.4)',
+      color: subtle ? 'var(--fg-2)' : 'var(--fg-1)',
+      fontFamily: 'var(--mono)',
+      fontSize: subtle ? 9 : 10,
+      fontWeight: 600,
+      letterSpacing: 0.2,
+    }}>{children}</span>
+  );
+}
+
+function WindowsSection({ pinned, windows }) {
+  // One unified list. Pinned (typed) windows render with a colored type-icon
+  // and tone; ad-hoc windows render neutrally. Same shape, same affordances.
+  // The active window's pane schematic renders below.
+  const all = [...pinned.map(w => ({ ...w, _pinned: true })), ...windows.map(w => ({ ...w, type: 'term', _pinned: false }))];
+  const active = all.find(w => w.active) || all[0];
+  return (
+    <section style={{
+      border: '1px solid var(--line-soft)',
+      borderRadius: 14,
+      padding: 12,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', rowGap: 6 }}>
+        <span style={{
+          fontFamily: 'var(--mono)', fontSize: 9,
+          color: 'var(--fg-4)', letterSpacing: 0.6, textTransform: 'uppercase',
+        }}>windows</span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-3)' }}>
+          {pinned.length} pinned · {windows.length} ad-hoc
+        </span>
+        <span style={{ flex: 1 }}/>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-4)',
+        }}>
+          <Kbd subtle>1</Kbd><span>–</span><Kbd subtle>9</Kbd><span>jump</span>
+        </span>
+      </div>
+
+      {/* numbered window strip — pinned first, separator, then ad-hoc */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', rowGap: 6 }}>
+        {all.map((w, i) => {
+          const tone = TYPE_TONE[w.type] || TYPE_TONE.term;
+          const isActive = w.id === active.id;
+          // separator before first ad-hoc
+          const showSep = i > 0 && all[i - 1]._pinned && !w._pinned;
+          return (
+            <React.Fragment key={w.id}>
+              {showSep && <span style={{ width: 1, height: 14, background: 'var(--line-soft)', margin: '0 2px' }}/>}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '3px 9px 3px 4px',
+                borderRadius: 999,
+                background: isActive ? tone.bg : 'transparent',
+                border: `1px solid ${isActive ? tone.border : 'var(--line-soft)'}`,
+                fontFamily: 'var(--mono)', fontSize: 10.5,
+                color: isActive ? 'var(--fg-0)' : 'var(--fg-2)',
+              }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 14, height: 14, padding: '0 3px',
+                  borderRadius: 999,
+                  background: isActive ? tone.border : 'oklch(0.34 0.020 320 / 0.6)',
+                  color: isActive ? 'var(--fg-0)' : 'var(--fg-3)',
+                  fontSize: 9, fontWeight: 700,
+                }}>{i + 1}</span>
+                {w._pinned && <TypeIcon type={w.type} size={10} color={tone.fg}/>}
+                <span>{w.name}</span>
+                <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>{w.panes.length}p</span>
+              </div>
+            </React.Fragment>
+          );
+        })}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px',
+          borderRadius: 999,
+          border: '1px dashed var(--line)',
+          fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--fg-3)',
+        }}>
+          <Kbd subtle>c</Kbd><span>new</span>
+        </div>
+      </div>
+
+      {/* Active window's contents */}
+      <div>
+        <div style={{
+          display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, gap: 12,
+        }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            fontFamily: 'var(--mono)', fontSize: 10,
+            color: 'var(--fg-3)', letterSpacing: 0.5, textTransform: 'uppercase',
+          }}>
+            {active._pinned && <TypeIcon type={active.type} size={10} color={(TYPE_TONE[active.type]||TYPE_TONE.term).fg}/>}
+            <span>{active._pinned ? (TYPE_TONE[active.type]||TYPE_TONE.term).label : 'window'} · {active.name} · {active.panes.length} {active.panes.length === 1 ? 'pane' : 'panes'}</span>
+          </span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-3)' }}>180 × 48</span>
+        </div>
+        <PaneSchematic window={active} />
+      </div>
+    </section>
+  );
+}
+
+// Returns a uniform descriptor of whatever surface is currently in focus.
+function getFocusedSurface() {
+  const all = [...FOCUSED.pinned, ...FOCUSED.windows.map(w => ({ ...w, type: 'term' }))];
+  const w = all.find(x => x.active) || all[0];
+  const tone = TYPE_TONE[w.type] || TYPE_TONE.term;
+  return { kind: w.type, label: w.name, detail: `p1/${w.panes.length}`, full: w.panes[0].cmd, status: w.panes[0].status, tone, window: w };
+}
+
+function Switcher() {
+  const focused = SESSIONS[0];
+
+  const attentionCount = SESSIONS.filter(s => s.status === 'attention').length;
+
+  return (
+    <div style={{
+      width: 1080,
+      maxWidth: 'calc(100vw - 48px)',
+      height: 'min(720px, calc(100vh - 48px))',
+      background: 'oklch(0.24 0.028 320 / 0.94)',
+      backdropFilter: 'blur(24px) saturate(140%)',
+      WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+      border: '1px solid var(--line)',
+      borderRadius: 20,
+      boxShadow: '0 36px 80px -16px rgb(0 0 0 / 0.6), 0 0 60px -20px var(--accent-glow), inset 0 1px 0 oklch(0.65 0.04 330 / 0.10)',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      fontFamily: 'var(--sans)',
+    }}>
+      {/* Header / search */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '14px 18px',
+        borderBottom: '1px solid var(--line-soft)',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          color: 'var(--accent)',
+          fontFamily: 'var(--mono)',
+          fontSize: 12,
+          fontWeight: 600,
+          letterSpacing: 0.4,
+          textTransform: 'uppercase',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+            <path d="M7 1.6 C 5.6 -0.2, 1.6 0.4, 1.6 4.0 C 1.6 6.8, 4.6 9.2, 7 11.4 C 9.4 9.2, 12.4 6.8, 12.4 4.0 C 12.4 0.4, 8.4 -0.2, 7 1.6 Z" fill="var(--accent)" filter="drop-shadow(0 0 4px var(--accent))"/>
+          </svg>
+          your sessions
+        </div>
+        <div style={{ width: 1, height: 16, background: 'var(--line)' }}/>
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontFamily: 'var(--mono)',
+          fontSize: 13,
+          color: 'var(--fg-2)',
+        }}>
+          <span style={{ color: 'var(--accent-dim)' }}>❯</span>
+          <span style={{ color: 'var(--fg-1)' }}>orph</span>
+          <span style={{
+            display: 'inline-block',
+            width: 7, height: 15,
+            background: 'var(--accent)',
+            opacity: 0.85,
+            transform: 'translateY(2px)',
+          }}/>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--fg-4)' }}>
+            <span>prefix</span>
+            <Kbd>⌃</Kbd><Kbd>b</Kbd>
+          </span>
+          <span style={{ width: 1, height: 14, background: 'var(--line)' }}/>
+          <span><span style={{ color: 'var(--warn)', fontWeight: 600 }}>{attentionCount}</span> need attention</span>
+          <span><span style={{ color: 'var(--fg-1)', fontWeight: 600 }}>{SESSIONS.length}</span> total</span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1.15fr 1fr',
+        minHeight: 0,
+        flex: 1,
+        overflow: 'hidden',
+      }}>
+        {/* Left: session list */}
+        <div style={{
+          padding: '10px 10px',
+          borderRight: '1px solid var(--line-soft)',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+          overflowY: 'auto',
+        }}>
+          <SectionLabel>♥ needs you · {SESSIONS.filter(s => s.status === 'attention').length}</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
+            {SESSIONS.filter(s => s.status === 'attention').map(s => (
+              <SessionRow key={s.id} s={s} focused={false} />
+            ))}
+          </div>
+          <SectionLabel>✦ active</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
+            {SESSIONS.filter(s => s.status === 'focused' || s.status === 'running').map(s => (
+              <SessionRow key={s.id} s={s} focused={s.id === focused.id} />
+            ))}
+          </div>
+          <SectionLabel>◌ idle</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {SESSIONS.filter(s => s.status === 'idle').map(s => (
+              <SessionRow key={s.id} s={s} focused={false} />
+            ))}
+          </div>
+        </div>
+
+        {/* Right: focused session detail */}
+        <div style={{
+          padding: '16px 18px',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+          overflowY: 'auto',
+          gap: 14,
+        }}>
+          <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 10,
+              marginBottom: 4,
+              minWidth: 0,
+            }}>
+              <span style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 10,
+                color: 'var(--fg-3)',
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+                flexShrink: 0,
+              }}>session</span>
+              <span style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 18,
+                fontWeight: 600,
+                color: 'var(--fg-0)',
+                letterSpacing: -0.2,
+                flexShrink: 0,
+              }}>{focused.name}</span>
+              <span style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                color: 'var(--fg-3)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}>{focused.cwd}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 14, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-2)', flexWrap: 'wrap' }}>
+              <span style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>branch</span>  <span style={{ color: 'var(--warn)' }}> {focused.branch}</span></span>
+              <span style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>uptime</span> <span style={{ color: 'var(--fg-1)' }}>4h 12m</span></span>
+              <span style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--fg-3)' }}>pid</span> <span style={{ color: 'var(--fg-1)' }}>48211</span></span>
+            </div>
+          </div>
+
+          {/* ── windows: pinned (typed) + ad-hoc, unified ── */}
+          <WindowsSection pinned={FOCUSED.pinned} windows={FOCUSED.windows} />
+        </div>
+      </div>
+
+      {/* Footer keybinds — grouped by scope. tmux-style prefix bindings. */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        padding: 0,
+        borderTop: '1px solid var(--line-soft)',
+        background: 'oklch(0.18 0.022 310 / 0.6)',
+        fontFamily: 'var(--mono)',
+        fontSize: 11,
+        color: 'var(--fg-3)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+      }}>
+        <FooterGroup label="move">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>j</Kbd><Kbd>k</Kbd>
+            <span>row</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>h</Kbd><Kbd>l</Kbd>
+            <span>pane</span>
+          </span>
+        </FooterGroup>
+        <FooterGroup label="session">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>↵</Kbd><span>attach</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>c</Kbd><span>new</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>d</Kbd><span>detach</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>x</Kbd><span>kill</span>
+          </span>
+        </FooterGroup>
+        <FooterGroup label="window">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>n</Kbd><Kbd>p</Kbd>
+            <span>cycle</span>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Kbd>1</Kbd><span style={{ color: 'var(--fg-4)' }}>–</span><Kbd>9</Kbd>
+            <span>jump</span>
+          </span>
+        </FooterGroup>
+        <div style={{ flex: 1, minWidth: 0 }}/>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 14px', color: 'var(--fg-4)',
+          flexShrink: 0,
+        }}>
+          <Kbd>?</Kbd>
+          <span style={{ color: 'var(--fg-4)', margin: '0 4px' }}>·</span>
+          <Kbd>esc</Kbd>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FooterGroup({ label, children }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: '10px 14px',
+      borderRight: '1px solid var(--line-soft)',
+    }}>
+      <span style={{
+        fontSize: 9,
+        color: 'var(--fg-4)',
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+      }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      padding: '8px 8px 6px',
+      fontFamily: 'var(--mono)',
+      fontSize: 10,
+      color: 'var(--fg-3)',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+    }}>{children}</div>
+  );
+}
+
+window.Switcher = Switcher;
+
+// ── Ambient surfaces ───────────────────────────────────────────
+// Two non-occluding ways to surface session info while NOT in the
+// switcher. Both reserve their own row instead of floating over panes.
+
+// (A) Bottom statusline — terminal-native convention. Two thin rows
+// pinned to the bottom: window tabs (when relevant) above the main
+// statusline. Reserves vertical space; never occludes content.
+function StatuslineDock({ children }) {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        {children}
+      </div>
+      <WindowTabRow />
+      <Statusline />
+    </div>
+  );
+}
+
+// Thin row above statusline: windows of the focused session.
+// Numbered for direct keyboard jump (prefix-then-1, prefix-then-2 …).
+function WindowTabRow() {
+  return (
+    <div style={{
+      flex: 'none',
+      height: 22,
+      display: 'flex',
+      alignItems: 'stretch',
+      background: 'oklch(0.18 0.020 310 / 0.96)',
+      borderTop: '1px solid var(--line-soft)',
+      fontFamily: 'var(--mono)',
+      fontSize: 10.5,
+      color: 'var(--fg-3)',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        padding: '0 10px',
+        color: 'var(--fg-4)',
+        fontSize: 9,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+      }}>
+        windows
+      </div>
+      <div style={{ width: 1, background: 'var(--line-soft)' }}/>
+      <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        {FOCUSED.windows.map((w, i) => (
+          <div key={w.id} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '0 12px',
+            background: w.active ? 'oklch(0.82 0.10 340 / 0.14)' : 'transparent',
+            color: w.active ? 'var(--fg-0)' : 'var(--fg-2)',
+            borderRight: '1px solid var(--line-soft)',
+            position: 'relative',
+          }}>
+            {w.active && (
+              <span style={{
+                position: 'absolute', left: 0, right: 0, top: 0,
+                height: 1.5, background: 'var(--accent)',
+              }}/>
+            )}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              minWidth: 14, height: 14, padding: '0 3px',
+              borderRadius: 3,
+              background: w.active ? 'oklch(0.82 0.10 340 / 0.30)' : 'oklch(0.30 0.015 310 / 0.55)',
+              color: w.active ? 'var(--fg-0)' : 'var(--fg-3)',
+              fontSize: 9,
+              fontWeight: 600,
+            }}>{i + 1}</span>
+            <span>{w.name}</span>
+            <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>{w.panes.length}p</span>
+          </div>
+        ))}
+        <div style={{ flex: 1 }}/>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '0 12px',
+          color: 'var(--fg-4)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}>
+          <Kbd subtle>1</Kbd><span style={{ color: 'var(--fg-4)' }}>–</span><Kbd subtle>9</Kbd>
+          <span>jump</span>
+          <span style={{ color: 'var(--fg-4)', margin: '0 4px' }}>·</span>
+          <Kbd subtle>c</Kbd><span>new</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Statusline() {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  const surface = getFocusedSurface();
+  const attention = SESSIONS.filter(s => s.status === 'attention');
+  return (
+    <div style={{
+      flex: 'none',
+      height: 26,
+      display: 'flex',
+      alignItems: 'stretch',
+      borderTop: '1px solid var(--line-soft)',
+      background: 'oklch(0.20 0.022 310 / 0.96)',
+      fontFamily: 'var(--mono)',
+      fontSize: 11,
+      color: 'var(--fg-2)',
+    }}>
+      {/* left: session badge */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '0 18px 0 12px',
+        background: 'oklch(0.82 0.10 340 / 0.16)',
+        color: 'var(--fg-0)',
+        clipPath: 'polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%)',
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: 99, background: 'var(--accent)' }}/>
+        <span style={{ fontWeight: 600 }}>{focused.name}</span>
+      </div>
+
+      {/* breadcrumb: surface (nvim or window) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
+        {surface.kind === 'nvim' && <NvimLogo size={10} color="var(--running)" />}
+        <span style={{ color: surface.kind === 'nvim' ? 'var(--running)' : 'var(--fg-3)' }}>{surface.label}</span>
+        <span style={{ color: 'var(--fg-4)' }}>›</span>
+        <span style={{ color: 'var(--fg-3)' }}>{surface.detail}</span>
+      </div>
+
+      <div style={{ width: 1, background: 'var(--line-soft)' }}/>
+
+      {/* attention chips inline — each numbered for ⌥-jump from anywhere */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px', minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ color: 'var(--fg-4)', fontSize: 9, letterSpacing: 0.6, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>attn</span>
+        {attention.map((s, i) => {
+          const c = s.attention?.kind === 'err' ? 'var(--err)'
+                  : s.attention?.kind === 'warn' ? 'var(--warn)'
+                  : 'var(--info)';
+          return (
+            <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 13, height: 13,
+                borderRadius: 3,
+                background: 'oklch(0.30 0.015 310 / 0.55)',
+                color: 'var(--fg-3)',
+                fontSize: 9,
+                fontWeight: 600,
+              }}>{i + 1}</span>
+              <span style={{ width: 5, height: 5, borderRadius: 99, background: c }}/>
+              <span style={{ color: 'var(--fg-1)' }}>{s.name}</span>
+              {s.attention?.count != null && (
+                <span style={{ color: c, fontWeight: 600 }}>{s.attention.count}</span>
+              )}
+            </span>
+          );
+        })}
+      </div>
+
+      <div style={{ flex: 1 }}/>
+
+      {/* right: branch + clock + hop hint */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', color: 'var(--fg-3)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ color: 'var(--fg-4)' }}></span>
+          <span style={{ color: 'var(--warn)' }}>{focused.branch}</span>
+        </span>
+        <span style={{ color: 'var(--fg-4)' }}>·</span>
+        <span style={{ color: 'var(--fg-2)', fontVariantNumeric: 'tabular-nums' }}>14:23</span>
+        <span style={{ color: 'var(--fg-4)' }}>·</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <Kbd subtle>⌃</Kbd><Kbd subtle>b</Kbd><Kbd subtle>s</Kbd>
+          <span>switcher</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// (B) Top tab strip — like browser tabs, one chip per session with a
+// status dot. Click to attach. Reserves a row at the top.
+function TabStripDock({ children }) {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <TabStrip />
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TabStrip() {
+  return (
+    <div style={{
+      flex: 'none',
+      height: 36,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '0 8px',
+      borderBottom: '1px solid var(--line-soft)',
+      background: 'oklch(0.20 0.022 310 / 0.96)',
+      fontFamily: 'var(--mono)',
+      fontSize: 11,
+      overflow: 'hidden',
+    }}>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center',
+        padding: '0 8px', color: 'var(--fg-3)', fontSize: 10,
+        letterSpacing: 0.4, textTransform: 'uppercase',
+      }}>utena</span>
+      <div style={{ width: 1, height: 16, background: 'var(--line-soft)', marginRight: 4 }}/>
+      {SESSIONS.map(s => {
+        const active = s.status === 'focused';
+        const c = s.attention?.kind === 'err' ? 'var(--err)'
+                : s.attention?.kind === 'warn' ? 'var(--warn)'
+                : s.status === 'running' ? 'var(--running)'
+                : s.status === 'attention' ? 'var(--info)'
+                : 'var(--fg-4)';
+        return (
+          <div key={s.id} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '5px 12px',
+            borderRadius: 999,
+            background: active ? 'oklch(0.84 0.13 345 / 0.16)' : 'transparent',
+            border: active ? '1px solid oklch(0.84 0.13 345 / 0.45)' : '1px solid transparent',
+            color: active ? 'var(--fg-0)' : 'var(--fg-2)',
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+            <span style={{ fontWeight: active ? 600 : 400 }}>{s.name}</span>
+            {s.attention?.count != null && (
+              <span style={{ color: c, fontWeight: 600, fontSize: 10 }}>{s.attention.count}</span>
+            )}
+          </div>
+        );
+      })}
+      <div style={{ flex: 1 }}/>
+      <span style={{ color: 'var(--fg-3)', fontSize: 10, padding: '0 10px' }}>
+        + new
+      </span>
+    </div>
+  );
+}
+
+window.StatuslineDock = StatuslineDock;
+window.TabStripDock = TabStripDock;
+
+// Legacy floating HUD kept for reference but no longer used in App.
+function AmbientHUD() {
+  // Pulled from the same SESSIONS source the switcher uses.
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  const surface = getFocusedSurface();
+  const attention = SESSIONS.filter(s => s.status === 'attention');
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-end',
+      gap: 8,
+      fontFamily: 'var(--mono)',
+      pointerEvents: 'auto',
+      zIndex: 10,
+    }}>
+      {/* Primary pill: current session/window/pane breadcrumb + attention summary */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        background: 'oklch(0.20 0.022 310 / 0.88)',
+        backdropFilter: 'blur(16px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(140%)',
+        border: '1px solid var(--line)',
+        borderRadius: 8,
+        boxShadow: '0 12px 32px -12px rgb(0 0 0 / 0.6), inset 0 1px 0 oklch(0.6 0.03 310 / 0.05)',
+        overflow: 'hidden',
+        fontSize: 11,
+        height: 30,
+      }}>
+        {/* breadcrumb */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '0 12px',
+          color: 'var(--fg-2)',
+        }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: 99,
+            background: 'var(--accent)',
+          }}/>
+          <span style={{ color: 'var(--fg-0)', fontWeight: 600 }}>{focused.name}</span>
+          <span style={{ color: 'var(--fg-4)' }}>›</span>
+          <span style={{ color: 'var(--fg-1)' }}>{surface.label}</span>
+          <span style={{ color: 'var(--fg-4)' }}>›</span>
+          <span style={{ color: 'var(--fg-2)' }}>{surface.detail}</span>
+          <span style={{ color: 'var(--fg-3)', marginLeft: 4 }}>·</span>
+          <span style={{ color: 'var(--fg-3)' }}>{focused.windows}w {focused.panes}p</span>
+        </div>
+
+        {/* attention badges — clustered, color-coded */}
+        {attention.length > 0 && (
+          <>
+            <div style={{ width: 1, background: 'var(--line-soft)' }}/>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '0 12px',
+              background: 'oklch(0.86 0.10 75 / 0.05)',
+            }}>
+              {attention.map(s => {
+                const c = s.attention?.kind === 'err' ? 'var(--err)'
+                        : s.attention?.kind === 'warn' ? 'var(--warn)'
+                        : 'var(--info)';
+                return (
+                  <div key={s.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 10.5,
+                  }}>
+                    <span style={{
+                      width: 5, height: 5, borderRadius: 99,
+                      background: c,
+                      
+                    }}/>
+                    <span style={{ color: 'var(--fg-1)' }}>{s.name}</span>
+                    {s.attention?.count != null && (
+                      <span style={{
+                        color: c, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                      }}>{s.attention.count}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* shortcut hint */}
+        <div style={{ width: 1, background: 'var(--line-soft)' }}/>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '0 10px',
+          color: 'var(--fg-3)',
+          fontSize: 10,
+        }}>
+          <Kbd>⌘</Kbd><Kbd>·</Kbd>
+          <span style={{ marginLeft: 2 }}>hop</span>
+        </div>
+      </div>
+
+      {/* Peek strip — last output line of the most-urgent attention session */}
+      {attention[0] && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '6px 12px',
+          background: 'oklch(0.20 0.022 310 / 0.88)',
+          backdropFilter: 'blur(16px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(16px) saturate(140%)',
+          border: '1px solid oklch(0.72 0.18 25 / 0.30)',
+          borderRadius: 8,
+          fontSize: 10.5,
+          maxWidth: 460,
+          boxShadow: '0 8px 24px -10px rgb(0 0 0 / 0.5)',
+        }}>
+          <span style={{
+            width: 5, height: 5, borderRadius: 99,
+            background: 'var(--err)',
+            flexShrink: 0,
+          }}/>
+          <span style={{ color: 'var(--err)', fontWeight: 600 }}>orpheus</span>
+          <span style={{ color: 'var(--fg-4)' }}>›</span>
+          <span style={{
+            color: 'var(--fg-1)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            FAIL  TestBillingWebhook_RetriesOnGatewayTimeout
+          </span>
+          <span style={{ color: 'var(--fg-3)', marginLeft: 'auto', flexShrink: 0 }}>3m ago</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.AmbientHUD = AmbientHUD;
+
+</script>
+<script type="text/babel">
+// Two-up viewport: top frame shows the HUD only (switcher closed),
+// bottom frame shows the HUD + full switcher overlay (open).
+
+function ViewportFrame({ label, children, height }) {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+      flex: 'none',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-3)',
+        letterSpacing: 0.4, textTransform: 'uppercase',
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: 99,
+          background: 'var(--accent)',
+        }}/>
+        {label}
+      </div>
+      <div style={{
+        position: 'relative',
+        height,
+        flex: 'none',
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: '1px solid var(--line)',
+        background: 'var(--bg-0)',
+        boxShadow: '0 20px 60px -20px rgb(0 0 0 / 0.7)',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Hierarchy variants ─────────────────────────────────────────
+// Five different ways to surface the session/window hierarchy
+// without occluding terminal content.
+
+// helper — session colour by status
+function sessionColor(s) {
+  if (s.attention?.kind === 'err') return 'var(--err)';
+  if (s.attention?.kind === 'warn') return 'var(--warn)';
+  if (s.status === 'focused') return 'var(--accent)';
+  if (s.status === 'running') return 'var(--running)';
+  if (s.status === 'attention') return 'var(--info)';
+  return 'var(--fg-4)';
+}
+
+// (1) Two-tier tabs — sessions on top, windows-of-focused below.
+// Distinct visual weight per row makes the containment obvious.
+function TwoTierTabsDock({ children }) {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Tier 1: sessions */}
+      <div style={{
+        flex: 'none',
+        height: 32,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '0 10px',
+        background: 'oklch(0.20 0.022 310 / 0.96)',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--mono)',
+        fontSize: 11,
+      }}>
+        <span style={{ color: 'var(--fg-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, padding: '0 6px' }}>sessions</span>
+        <div style={{ width: 1, height: 14, background: 'var(--line-soft)', marginRight: 4 }}/>
+        {SESSIONS.map(s => {
+          const active = s.id === focused.id;
+          const c = sessionColor(s);
+          return (
+            <div key={s.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '4px 10px', borderRadius: 6,
+              background: active ? 'oklch(0.82 0.10 340 / 0.16)' : 'transparent',
+              border: active ? '1px solid oklch(0.82 0.10 340 / 0.45)' : '1px solid transparent',
+              color: active ? 'var(--fg-0)' : 'var(--fg-2)',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+              <span style={{ fontWeight: active ? 600 : 400 }}>{s.name}</span>
+              {s.attention?.count != null && (
+                <span style={{ color: c, fontWeight: 600, fontSize: 10 }}>{s.attention.count}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {/* Tier 2: windows of focused session — slimmer, indented, "inside" */}
+      <div style={{
+        flex: 'none',
+        height: 24,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0,
+        padding: '0 18px',
+        background: 'oklch(0.18 0.020 310 / 0.94)',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--mono)',
+        fontSize: 10.5,
+        color: 'var(--fg-3)',
+      }}>
+        <span style={{ marginRight: 10, color: 'var(--fg-4)' }}>└─</span>
+        {FOCUSED.windows.map((w, i) => (
+          <div key={w.id} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '0 10px', height: 24,
+            borderBottom: w.active ? '2px solid var(--accent)' : '2px solid transparent',
+            color: w.active ? 'var(--fg-0)' : 'var(--fg-3)',
+          }}>
+            <span style={{ color: 'var(--fg-4)' }}>{i + 1}</span>
+            <span>{w.name}</span>
+            <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>{w.panes.length}p</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+// (2) Vertical session rail (left) + horizontal window tabs (top).
+// Orientation itself encodes the hierarchy.
+function RailDock({ children }) {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex' }}>
+      {/* left rail — sessions */}
+      <div style={{
+        flex: 'none',
+        width: 44,
+        background: 'oklch(0.18 0.020 310 / 0.96)',
+        borderRight: '1px solid var(--line-soft)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '8px 0',
+        gap: 4,
+        fontFamily: 'var(--mono)',
+      }}>
+        {SESSIONS.map(s => {
+          const active = s.id === focused.id;
+          const c = sessionColor(s);
+          return (
+            <div key={s.id} title={s.name} style={{
+              position: 'relative',
+              width: 30, height: 30,
+              borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: active ? 'oklch(0.82 0.10 340 / 0.18)' : 'transparent',
+              border: active ? '1px solid oklch(0.82 0.10 340 / 0.45)' : '1px solid transparent',
+              color: active ? 'var(--fg-0)' : 'var(--fg-2)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}>
+              {s.name[0].toUpperCase()}
+              {/* status dot, top-right */}
+              <span style={{
+                position: 'absolute', top: 4, right: 4,
+                width: 5, height: 5, borderRadius: 99, background: c,
+              }}/>
+              {/* attention count */}
+              {s.attention?.count != null && (
+                <span style={{
+                  position: 'absolute', bottom: -2, right: -2,
+                  minWidth: 12, height: 12, padding: '0 3px',
+                  borderRadius: 99,
+                  background: c, color: 'var(--bg-0)',
+                  fontSize: 9, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '1.5px solid oklch(0.18 0.020 310)',
+                }}>{s.attention.count}</span>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ flex: 1 }}/>
+        <div style={{
+          width: 30, height: 30, borderRadius: 8,
+          border: '1px dashed var(--line)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--fg-3)', fontSize: 14,
+        }}>+</div>
+      </div>
+      {/* right side: window tabs + content */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          flex: 'none', height: 30,
+          display: 'flex', alignItems: 'center', gap: 2,
+          padding: '0 10px',
+          background: 'oklch(0.20 0.022 310 / 0.96)',
+          borderBottom: '1px solid var(--line-soft)',
+          fontFamily: 'var(--mono)', fontSize: 11,
+        }}>
+          <span style={{ color: 'var(--fg-0)', fontWeight: 600, marginRight: 12 }}>{focused.name}</span>
+          {FOCUSED.windows.map((w, i) => (
+            <div key={w.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 10px', borderRadius: 5,
+              background: w.active ? 'oklch(0.82 0.10 340 / 0.14)' : 'transparent',
+              color: w.active ? 'var(--fg-0)' : 'var(--fg-2)',
+            }}>
+              <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>{i + 1}</span>
+              <span>{w.name}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// (3) Disclosure tabs — focused session expands to show its windows
+// inline below it. Closed sessions are just chips.
+function DisclosureTabsDock({ children }) {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        flex: 'none',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 4,
+        padding: '6px 10px',
+        background: 'oklch(0.20 0.022 310 / 0.96)',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--mono)', fontSize: 11,
+        flexWrap: 'wrap',
+      }}>
+        {SESSIONS.map(s => {
+          const active = s.id === focused.id;
+          const c = sessionColor(s);
+          if (!active) {
+            return (
+              <div key={s.id} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 6,
+                color: 'var(--fg-2)',
+                height: 26,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+                <span>{s.name}</span>
+                {s.attention?.count != null && (
+                  <span style={{ color: c, fontWeight: 600, fontSize: 10 }}>{s.attention.count}</span>
+                )}
+              </div>
+            );
+          }
+          // expanded session: name + inline window pills
+          return (
+            <div key={s.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '3px 4px 3px 10px', borderRadius: 8,
+              background: 'oklch(0.82 0.10 340 / 0.14)',
+              border: '1px solid oklch(0.82 0.10 340 / 0.40)',
+              color: 'var(--fg-0)',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+              <span style={{ fontWeight: 600 }}>{s.name}</span>
+              <span style={{ color: 'var(--fg-4)', margin: '0 2px' }}>·</span>
+              {FOCUSED.windows.map((w, i) => (
+                <div key={w.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px', borderRadius: 5,
+                  background: w.active ? 'oklch(0.20 0.022 310 / 0.85)' : 'transparent',
+                  color: w.active ? 'var(--fg-0)' : 'var(--fg-2)',
+                  fontSize: 10.5,
+                }}>
+                  <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>{i + 1}</span>
+                  <span>{w.name}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+// (4) Session name + window dots — each chip shows N tiny dots
+// representing its windows; filled dot = active. Cute, ambient.
+function DotsTabsDock({ children }) {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        flex: 'none', height: 36,
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: '0 10px',
+        background: 'oklch(0.20 0.022 310 / 0.96)',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--mono)', fontSize: 11,
+      }}>
+        {SESSIONS.map(s => {
+          const active = s.id === focused.id;
+          const c = sessionColor(s);
+          // for the focused session, show real window state; for others, mock.
+          const winCount = s.windows;
+          const activeIdx = active ? 0 : -1; // others not currently focused
+          return (
+            <div key={s.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '5px 10px', borderRadius: 6,
+              background: active ? 'oklch(0.82 0.10 340 / 0.16)' : 'transparent',
+              border: active ? '1px solid oklch(0.82 0.10 340 / 0.45)' : '1px solid transparent',
+              color: active ? 'var(--fg-0)' : 'var(--fg-2)',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+              <span style={{ fontWeight: active ? 600 : 400 }}>{s.name}</span>
+              {/* window dots */}
+              <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center', marginLeft: 2 }}>
+                {Array.from({ length: winCount }).map((_, i) => (
+                  <span key={i} style={{
+                    width: 5, height: 5, borderRadius: 99,
+                    background: i === activeIdx
+                      ? 'var(--accent)'
+                      : active
+                        ? 'oklch(0.82 0.10 340 / 0.30)'
+                        : 'var(--fg-4)',
+                  }}/>
+                ))}
+              </span>
+              {s.attention?.count != null && (
+                <span style={{ color: c, fontWeight: 600, fontSize: 10 }}>{s.attention.count}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+// (5) Distinct shapes — sessions as rounded rectangles, windows as
+// trapezoid slabs that visually "sit inside" the session shell.
+function ShapesDock({ children }) {
+  const focused = SESSIONS.find(s => s.status === 'focused');
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        flex: 'none',
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 6,
+        padding: '8px 10px 0',
+        background: 'oklch(0.18 0.020 310 / 0.96)',
+        borderBottom: '1px solid var(--line-soft)',
+        fontFamily: 'var(--mono)', fontSize: 11,
+        minHeight: 56,
+      }}>
+        {SESSIONS.map(s => {
+          const active = s.id === focused.id;
+          const c = sessionColor(s);
+          return (
+            <div key={s.id} style={{
+              position: 'relative',
+              display: 'inline-flex',
+              flexDirection: 'column',
+              alignItems: 'stretch',
+            }}>
+              {/* session shell */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px',
+                borderRadius: '8px 8px 0 0',
+                background: active ? 'oklch(0.82 0.10 340 / 0.18)' : 'oklch(0.22 0.024 310 / 0.7)',
+                borderTop: active ? '1px solid oklch(0.82 0.10 340 / 0.55)' : '1px solid var(--line-soft)',
+                borderLeft: active ? '1px solid oklch(0.82 0.10 340 / 0.55)' : '1px solid var(--line-soft)',
+                borderRight: active ? '1px solid oklch(0.82 0.10 340 / 0.55)' : '1px solid var(--line-soft)',
+                color: active ? 'var(--fg-0)' : 'var(--fg-2)',
+                marginBottom: -1,
+                paddingBottom: active ? 6 : 5,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: c }}/>
+                <span style={{ fontWeight: active ? 600 : 400 }}>{s.name}</span>
+                {s.attention?.count != null && (
+                  <span style={{ color: c, fontWeight: 600, fontSize: 10 }}>{s.attention.count}</span>
+                )}
+              </div>
+              {/* window slabs only on active session */}
+              {active && (
+                <div style={{
+                  display: 'flex',
+                  gap: 0,
+                  padding: '4px 4px 0',
+                  background: 'oklch(0.82 0.10 340 / 0.18)',
+                  borderLeft: '1px solid oklch(0.82 0.10 340 / 0.55)',
+                  borderRight: '1px solid oklch(0.82 0.10 340 / 0.55)',
+                }}>
+                  {FOCUSED.windows.map((w, i) => (
+                    <div key={w.id} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 9px',
+                      // trapezoid via clip-path
+                      clipPath: 'polygon(6px 0, calc(100% - 6px) 0, 100% 100%, 0 100%)',
+                      background: w.active ? 'var(--bg-0)' : 'transparent',
+                      color: w.active ? 'var(--fg-0)' : 'var(--fg-2)',
+                      fontSize: 10.5,
+                      marginRight: -4,
+                    }}>
+                      <span style={{ color: 'var(--fg-4)', fontSize: 9 }}>{i + 1}</span>
+                      <span>{w.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+window.TwoTierTabsDock = TwoTierTabsDock;
+window.RailDock = RailDock;
+window.DisclosureTabsDock = DisclosureTabsDock;
+window.DotsTabsDock = DotsTabsDock;
+window.ShapesDock = ShapesDock;
+
+function App() {
+  return (
+    <div style={{
+      width: '100%',
+      minHeight: '100vh',
+      background: 'var(--bg-0)',
+      padding: 18,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 22,
+      boxSizing: 'border-box',
+    }}>
+      <div style={{
+        fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--fg-2)',
+        padding: '4px 4px 0',
+      }}>
+        <div style={{ color: 'var(--fg-0)', fontWeight: 600, marginBottom: 4 }}>
+          terminal session manager · keyboard-first
+        </div>
+        <div style={{ color: 'var(--fg-3)', fontSize: 11 }}>
+          ambient: bottom statusline shows session ↔ window hierarchy without occluding content.
+          on-demand: prefix <Kbd subtle>⌃</Kbd><Kbd subtle>b</Kbd> opens the switcher; navigate with <Kbd subtle>h</Kbd><Kbd subtle>j</Kbd><Kbd subtle>k</Kbd><Kbd subtle>l</Kbd>.
+        </div>
+      </div>
+
+      {/* AMBIENT — primary docked surface: bottom statusline.
+          Two-tier: window tabs above the statusline so session→window
+          containment is visible at a glance, and every tab is one keystroke away. */}
+      <ViewportFrame label="ambient · bottom statusline (primary surface)" height={320}>
+        <window.StatuslineDock>
+          <window.TerminalBackground />
+        </window.StatuslineDock>
+      </ViewportFrame>
+
+      {/* OPEN — switcher overlay with full keyboard navigation:
+          hjkl movement, enter to attach, mode-grouped tmux-style hints. */}
+      <ViewportFrame label="switcher · prefix ⌃b — full keyboard navigation" height={760}>
+        <div style={{
+          position: 'absolute', inset: 0,
+          filter: 'blur(2px) brightness(0.55) saturate(0.9)',
+          transform: 'scale(1.02)',
+        }}>
+          <window.TerminalBackground />
+        </div>
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse at center, transparent 30%, oklch(0.12 0.018 310 / 0.50) 100%)',
+          pointerEvents: 'none',
+        }}/>
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <window.Switcher />
+        </div>
+      </ViewportFrame>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+</script>
+</body>
+</html>
