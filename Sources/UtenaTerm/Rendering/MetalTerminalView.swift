@@ -9,6 +9,9 @@ final class MetalTerminalView: MTKView {
     var onFocus: (() -> Void)?
     var isActive: Bool = false { didSet { setNeedsDisplay(bounds) } }
     var backgroundAppearance: PaneAppearance? = nil { didSet { setNeedsDisplay(bounds) } }
+    var resolvedBackground: PaneAppearance {
+        backgroundAppearance ?? (window as? TerminalWindow)?.windowBackground ?? .default
+    }
 
     let font: CTFont
     var cellWidth: CGFloat = 0

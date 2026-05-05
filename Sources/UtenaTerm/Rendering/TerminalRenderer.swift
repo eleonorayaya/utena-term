@@ -250,19 +250,12 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
         let snapshot = tv.bridge.snapshotViewport()
 
-        let resolvedBg: PaneAppearance
-        if let paneOverride = tv.backgroundAppearance {
-            resolvedBg = paneOverride
-        } else if let win = tv.window as? TerminalWindow {
-            resolvedBg = win.windowBackground
-        } else {
-            resolvedBg = .default
-        }
+        let bg = tv.resolvedBackground
         rpd.colorAttachments[0].clearColor = MTLClearColor(
-            red:   Double(resolvedBg.backgroundColor.x),
-            green: Double(resolvedBg.backgroundColor.y),
-            blue:  Double(resolvedBg.backgroundColor.z),
-            alpha: Double(resolvedBg.backgroundOpacity)
+            red:   Double(bg.backgroundColor.x),
+            green: Double(bg.backgroundColor.y),
+            blue:  Double(bg.backgroundColor.z),
+            alpha: Double(bg.backgroundOpacity)
         )
         rpd.colorAttachments[0].loadAction = .clear
 
