@@ -54,7 +54,7 @@ final class TmuxWindowController: NSWindowController {
         // Fetch daemon sessions (synchronous via semaphore — stays on main thread like NSAlert did)
         var daemonSessions: [Session] = []
         let sem = DispatchSemaphore(value: 0)
-        Task {
+        Task.detached {
             daemonSessions = (try? await UtenaDaemonClient.shared.fetchOnce()) ?? []
             sem.signal()
         }
@@ -72,7 +72,7 @@ final class TmuxWindowController: NSWindowController {
         case .create(let name, let workspaceId):
             var created: Session?
             let createSem = DispatchSemaphore(value: 0)
-            Task {
+            Task.detached {
                 created = try? await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId)
                 createSem.signal()
             }
