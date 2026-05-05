@@ -15,6 +15,24 @@ struct Session: Codable, Identifiable {
     let tmuxSession: TmuxSessionInfo?
     let claudeSessions: [ClaudeSession]
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, status, isAttached, lastUsedAt
+        case workspace, gitBranch, tmuxSession, claudeSessions
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UInt.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        status = try c.decode(SessionStatus.self, forKey: .status)
+        isAttached = try c.decode(Bool.self, forKey: .isAttached)
+        lastUsedAt = try c.decode(Date.self, forKey: .lastUsedAt)
+        workspace = try c.decodeIfPresent(Workspace.self, forKey: .workspace)
+        gitBranch = try c.decodeIfPresent(Branch.self, forKey: .gitBranch)
+        tmuxSession = try c.decodeIfPresent(TmuxSessionInfo.self, forKey: .tmuxSession)
+        claudeSessions = try c.decodeIfPresent([ClaudeSession].self, forKey: .claudeSessions) ?? []
+    }
+
     // Derived — not on the wire
     var workspacePath: String? { workspace?.path }
     var branchName: String? { gitBranch?.name }
@@ -50,6 +68,19 @@ struct TmuxSessionInfo: Codable {
     let startDir: String
     let isAlive: Bool
     let windows: [TmuxWindowInfo]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, startDir, isAlive, windows
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UInt.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        startDir = try c.decode(String.self, forKey: .startDir)
+        isAlive = try c.decode(Bool.self, forKey: .isAlive)
+        windows = try c.decodeIfPresent([TmuxWindowInfo].self, forKey: .windows) ?? []
+    }
 }
 
 struct TmuxWindowInfo: Codable {

@@ -46,7 +46,10 @@ actor UtenaDaemonClient {
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
+        d.keyDecodingStrategy = .custom { path in
+            let key = path.last!
+            return AnyKey(stringValue: convertKey(key.stringValue))
+        }
         d.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let str = try container.decode(String.self)
@@ -62,4 +65,30 @@ actor UtenaDaemonClient {
         }
         return d
     }()
+
+    /// Convert utena daemon JSON keys to Swift camelCase. The daemon mixes
+    /// GORM's embedded-Model PascalCase fields (`ID`, `CreatedAt`, …) with
+    /// snake_case for everything else, so neither built-in strategy alone
+    /// covers the full response.
+    private static func convertKey(_ str: String) -> String {
+        switch str {
+        case "ID": return "id"
+        case "CreatedAt": return "createdAt"
+        case "UpdatedAt": return "updatedAt"
+        case "DeletedAt": return "deletedAt"
+        default: break
+        }
+        guard str.contains("_") else { return str }
+        let parts = str.split(separator: "_")
+        let head = String(parts[0])
+        let tail = parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+        return head + tail
+    }
+}
+
+private struct AnyKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+    init(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue _: Int) { return nil }
 }
