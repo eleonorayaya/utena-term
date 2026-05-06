@@ -101,9 +101,13 @@ final class TmuxWindowController: NSWindowController {
     // MARK: - Layout
 
     private func applyLayout(_ layoutString: String, forWindow windowID: String) {
-        guard let node = try? layoutParser.parse(layoutString) else { return }
+        guard let node = try? layoutParser.parse(layoutString) else {
+            DebugLog.log("tmux", "applyLayout PARSE-FAIL window=\(windowID) layout=\(layoutString)")
+            return
+        }
         let newPaneIDs = Set(node.leafIDs())
         let oldPaneIDs = Set(windowPanes[windowID] ?? [])
+        DebugLog.log("tmux", "applyLayout window=\(windowID) panes=\(node.leafIDs()) hadTabItem=\(tabItems[windowID] != nil) currentWindow=\(currentWindowID ?? "nil") pendingSwitch=\(pendingSelectAfterLayout)")
 
         for id in oldPaneIDs.subtracting(newPaneIDs) {
             if focusedPane?.paneID == id { focusedPane = nil }
@@ -122,6 +126,7 @@ final class TmuxWindowController: NSWindowController {
             // a fresh tab item with the real view set up front.
             let idx = tabView.indexOfTabViewItem(existing)
             let wasSelected = tabView.selectedTabViewItem === existing
+            DebugLog.log("tmux", "applyLayout IF window=\(windowID) idx=\(idx) wasSelected=\(wasSelected) tabCount=\(tabView.numberOfTabViewItems)")
             if idx != NSNotFound { tabView.removeTabViewItem(existing) }
             let item = NSTabViewItem()
             item.label = windowID
@@ -134,8 +139,11 @@ final class TmuxWindowController: NSWindowController {
             }
             containerFrame = tabView.contentRect
             rootView.frame = containerFrame
-            if wasSelected || pendingSelectAfterLayout.contains(windowID) {
+            DebugLog.log("tmux", "applyLayout IF post-insert containerFrame=\(containerFrame) rootView=\(type(of: rootView)) tabCount=\(tabView.numberOfTabViewItems) selected=\(tabView.selectedTabViewItem?.label ?? "nil")")
+            let shouldSwitch = wasSelected || pendingSelectAfterLayout.contains(windowID)
+            if shouldSwitch {
                 pendingSelectAfterLayout.remove(windowID)
+                DebugLog.log("tmux", "applyLayout IF switching to window=\(windowID)")
                 selectWindow(id: windowID)
             }
         } else {
@@ -146,6 +154,7 @@ final class TmuxWindowController: NSWindowController {
             tabItems[windowID] = item
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
+            DebugLog.log("tmux", "applyLayout ELSE window=\(windowID) containerFrame=\(containerFrame) tabCount=\(tabView.numberOfTabViewItems)")
             if currentWindowID == nil {
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
@@ -288,10 +297,12 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, didLayoutChange layout: String, forWindow windowID: String) {
+        DebugLog.log("tmux", "didLayoutChange window=\(windowID) orderedWindows=\(orderedWindowIDs)")
         applyLayout(layout, forWindow: windowID)
     }
 
     func session(_ session: TmuxControlSession, didAddWindow windowID: String) {
+        DebugLog.log("tmux", "didAddWindow window=\(windowID) currentWindow=\(currentWindowID ?? "nil") alreadyHasTab=\(tabItems[windowID] != nil)")
         guard tabItems[windowID] == nil else { return }
         let item = NSTabViewItem()
         item.label = windowID
@@ -303,6 +314,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         // switch to it once applyLayout has populated its view.
         if currentWindowID != nil {
             pendingSelectAfterLayout.insert(windowID)
+            DebugLog.log("tmux", "didAddWindow queued pendingSelectAfterLayout=\(pendingSelectAfterLayout)")
         }
     }
 
@@ -346,7 +358,11 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         // tmux changed the active window (e.g. after `new-window` selects
         // its newly-created window). Mirror that into our NSTabView so
         // the right content shows.
-        guard windowID != currentWindowID, tabItems[windowID] != nil else { return }
+        DebugLog.log("tmux", "didSelectWindow window=\(windowID) currentWindow=\(currentWindowID ?? "nil") hasTab=\(tabItems[windowID] != nil)")
+        guard windowID != currentWindowID, tabItems[windowID] != nil else {
+            DebugLog.log("tmux", "didSelectWindow SKIPPED (same window or no tab yet)")
+            return
+        }
         selectWindow(id: windowID)
     }
 
@@ -446,11 +462,17 @@ extension TmuxWindowController: SessionChromeDelegate {
     var sessionName: String { window?.title ?? "" }
     var activeWindowID: String? { currentWindowID }
     func selectWindow(id: String) {
-        guard let item = tabItems[id] else { return }
+        guard let item = tabItems[id] else {
+            DebugLog.log("tmux", "selectWindow BAIL no tabItem for window=\(id)")
+            return
+        }
+        DebugLog.log("tmux", "selectWindow window=\(id) itemHasView=\(item.view != nil) panes=\(windowPanes[id] ?? [])")
         tabView.selectTabViewItem(item)
         currentWindowID = id
         if let firstPaneID = windowPanes[id]?.first, let pane = panes[firstPaneID] {
             setFocus(pane)
+        } else {
+            DebugLog.log("tmux", "selectWindow no pane to focus for window=\(id) windowPanes=\(windowPanes[id] ?? [])")
         }
         chrome?.windowsDidChange()
     }
