@@ -3,9 +3,11 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controllers: [TerminalWindowController] = []
     private var tmuxControllers: [TmuxWindowController] = []
+    private let notifier = AttentionNotifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await UtenaDaemonClient.shared.start() }
+        notifier.start()
         // Default first window is tmux-backed (with the session picker) so
         // attach/create works on launch, mirroring ⌘⇧N. Picker cancel
         // falls back to a plain terminal inside openTmuxWindow.
