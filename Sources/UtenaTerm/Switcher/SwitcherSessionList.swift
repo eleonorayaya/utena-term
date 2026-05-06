@@ -6,6 +6,9 @@ import AppKit
 final class SwitcherSessionList: NSView {
 
     var onActivate: (() -> Void)?
+    /// When non-nil, the row matching this session id is rendered with a
+    /// "press x again to confirm" treatment.
+    var confirmKillFor: UInt? { didSet { needsDisplay = true } }
 
     private var sections: [Section] = []
     private var rowFrames: [NSRect] = []
@@ -73,7 +76,13 @@ final class SwitcherSessionList: NSView {
 
     private func drawRow(_ s: Session, in rect: NSRect, focused: Bool, isCurrent: Bool) {
         let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        if focused {
+        let pendingKill = (confirmKillFor == s.id)
+        if pendingKill {
+            Palette.statusError.withAlphaComponent(0.18).setFill()
+            path.fill()
+            Palette.statusError.withAlphaComponent(0.55).setStroke()
+            path.stroke()
+        } else if focused {
             Palette.brandSoft.setFill()
             path.fill()
             Palette.brandBorder.setStroke()

@@ -7,6 +7,13 @@ protocol SwitcherDelegate: AnyObject {
     var currentSessionName: String { get }
 }
 
+/// Tracks a confirm-on-second-press kill action — set to a session id when
+/// the user first presses `x`, cleared on timeout or successful kill.
+private struct KillConfirmation {
+    let sessionId: UInt
+    let expiry: Date
+}
+
 /// SwitcherController owns the floating panel and the inner view tree.
 /// Lifecycle: created on first ⌃b p, kept alive across opens (cheap to
 /// re-show; expensive to re-build the visual-effect view).
@@ -21,6 +28,7 @@ final class SwitcherController: NSWindowController {
     private var selectedIndex: Int = 0
     private var query: String = ""
     private var sessionsObserver: NSObjectProtocol?
+    private var pendingKill: KillConfirmation?
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -207,14 +215,29 @@ final class SwitcherController: NSWindowController {
     }
 
     private func applyFilter() {
+        let pool: [Session]
         if query.isEmpty {
-            filtered = sessions
+            pool = sessions
         } else {
             let q = query.lowercased()
-            filtered = sessions.filter { $0.name.lowercased().contains(q) }
+            pool = sessions.filter { $0.name.lowercased().contains(q) }
+        }
+        // Sort by section priority so j/k navigation order matches visual
+        // (attention first, then active, then idle).
+        filtered = pool.sorted { lhs, rhs in
+            let lp = Self.sectionPriority(lhs)
+            let rp = Self.sectionPriority(rhs)
+            if lp != rp { return lp < rp }
+            return lhs.name.localizedCompare(rhs.name) == .orderedAscending
         }
         selectedIndex = min(selectedIndex, max(0, filtered.count - 1))
         refreshUI()
+    }
+
+    private static func sectionPriority(_ s: Session) -> Int {
+        if s.needsAttention { return 0 }
+        if s.status == .active || s.status == .creating { return 1 }
+        return 2
     }
 
     private func refreshUI() {
@@ -249,6 +272,42 @@ final class SwitcherController: NSWindowController {
         selectedIndex = next
         refreshUI()
     }
+
+    private func killSelected() {
+        guard !filtered.isEmpty else { return }
+        let s = filtered[selectedIndex]
+        let now = Date()
+        if let pending = pendingKill, pending.sessionId == s.id, pending.expiry > now {
+            // Second press within the window — confirm the kill.
+            pendingKill = nil
+            listView.confirmKillFor = nil
+            Task { try? await UtenaDaemonClient.shared.deleteSession(id: s.id) }
+        } else {
+            pendingKill = KillConfirmation(sessionId: s.id, expiry: now.addingTimeInterval(2))
+            listView.confirmKillFor = s.id
+        }
+        refreshUI()
+    }
+
+    private func appendQuery(_ s: String) {
+        query += s
+        applyFilter()
+    }
+
+    private func backspaceQuery() {
+        guard !query.isEmpty else { return }
+        query.removeLast()
+        applyFilter()
+    }
+
+    private func clearQuery() {
+        guard !query.isEmpty else {
+            close()
+            return
+        }
+        query = ""
+        applyFilter()
+    }
 }
 
 // MARK: - SwitcherKeyHandling
@@ -256,16 +315,26 @@ final class SwitcherController: NSWindowController {
 extension SwitcherController: SwitcherKeyHandling {
     func switcherKeyDown(_ event: NSEvent) -> Bool {
         switch event.keyCode {
-        case 36: attachSelected(); return true             // ⏎
-        case 53: close(); return true                       // ⎋
-        case 125: move(by: +1); return true                 // ↓
-        case 126: move(by: -1); return true                 // ↑
+        case 36:  attachSelected(); return true   // ⏎
+        case 53:  clearQuery(); return true       // ⎋ — clears query then dismisses
+        case 125: move(by: +1); return true       // ↓
+        case 126: move(by: -1); return true       // ↑
+        case 51:  backspaceQuery(); return true   // ⌫
         default: break
         }
-        switch event.charactersIgnoringModifiers {
+        let chars = event.charactersIgnoringModifiers ?? ""
+        switch chars {
         case "j": move(by: +1); return true
         case "k": move(by: -1); return true
+        case "x": killSelected(); return true
         default: break
+        }
+        // Other printable single-character keys feed the search query so
+        // the user can filter by typing, mirroring tmux/fzf-style pickers.
+        if chars.count == 1, let scalar = chars.unicodeScalars.first,
+           CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_" || scalar == "/" {
+            appendQuery(chars)
+            return true
         }
         return false
     }
