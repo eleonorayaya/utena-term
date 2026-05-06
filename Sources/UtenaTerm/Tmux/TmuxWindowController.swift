@@ -20,6 +20,7 @@ final class TmuxWindowController: NSWindowController {
         s.delegate = self
         return s
     }()
+    private lazy var help: HelpController = HelpController()
 
     convenience init() {
         let initialSize = NSSize(width: 880, height: 550)
@@ -468,6 +469,11 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowToggleSwitcher() {
         if switcher.isOpen { switcher.close() }
         else { switcher.open(near: window) }
+    }
+
+    func terminalWindowToggleHelp() {
+        if help.isOpen { help.close() }
+        else { help.open(near: window) }
     }
 
     func terminalWindowNewWindow() {

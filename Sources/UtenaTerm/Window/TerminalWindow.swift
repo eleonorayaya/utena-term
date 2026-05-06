@@ -8,6 +8,8 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowClosePane()
     /// Open / dismiss the session switcher overlay (⌃b s or ⌃b p).
     func terminalWindowToggleSwitcher()
+    /// Open / dismiss the keyboard help overlay (⌃b ?).
+    func terminalWindowToggleHelp()
     /// Create a new tmux window in the focused session (⌃b c).
     func terminalWindowNewWindow()
     /// Jump to window N (1-indexed) in the focused session (⌃b 1 … ⌃b 9).
@@ -83,6 +85,9 @@ final class TerminalWindow: NSWindow {
                     return
                 case ",":
                     splitDelegate?.terminalWindowRenameWindow()
+                    return
+                case "?":
+                    splitDelegate?.terminalWindowToggleHelp()
                     return
                 default: break
                 }
