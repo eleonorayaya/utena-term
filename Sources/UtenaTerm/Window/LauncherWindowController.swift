@@ -16,8 +16,12 @@ final class LauncherWindowController: NSWindowController {
         win.titlebarAppearsTransparent = true
         win.isMovableByWindowBackground = true
         win.backgroundColor = Palette.surfaceBackground
-        // Keep the close traffic-light visible: the launcher is a discardable
-        // session-picker host, so users always need a way to dismiss it.
+        // Full-bleed: hide traffic lights. ⌘W in the switcher / new-session
+        // picker bubbles to close the launcher (see SwitcherController +
+        // NewSessionPanelController), so the user always has a way out.
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            win.standardWindowButton(kind)?.isHidden = true
+        }
 
         // Empty content view with just palette background.
         let empty = NSView(frame: win.contentRect(forFrameRect: win.frame))

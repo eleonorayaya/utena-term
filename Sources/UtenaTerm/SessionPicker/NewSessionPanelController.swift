@@ -344,6 +344,13 @@ final class NewSessionPanelController: NSWindowController {
 
 extension NewSessionPanelController: NewSessionKeyHandling {
     func newSessionKeyDown(_ event: NSEvent) -> Bool {
+        // ⌘W cancels the picker entirely (mirrors a Mac window close).
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "w" {
+            onComplete?(.cancel)
+            close()
+            return true
+        }
         switch event.keyCode {
         case KeyMap.Key.escape:
             goBackOneStep()

@@ -332,6 +332,13 @@ final class SwitcherController: NSWindowController {
 
 extension SwitcherController: SwitcherKeyHandling {
     func switcherKeyDown(_ event: NSEvent) -> Bool {
+        // ⌘W from anywhere in the switcher closes it (and cascades to closing
+        // the launcher via onClose). Same affordance as a Mac window's close.
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "w" {
+            close()
+            return true
+        }
         if isInsertMode {
             return handleInsertKey(event)
         } else {
