@@ -2,6 +2,7 @@ import AppKit
 
 final class LauncherWindowController: NSWindowController {
     private var switcher: SwitcherController!
+    private var newSessionPicker: NewSessionPanelController?
 
     convenience init() {
         let win = TerminalWindow(
@@ -68,21 +69,26 @@ extension LauncherWindowController: SwitcherDelegate {
     }
 
     func switcherCreateSession() {
-        // Close the switcher panel first; SessionPickerController is also a panel
+        // Close the switcher panel first; the new session picker is also a panel
         // and stacking two non-activating panels gets messy.
         switcher.close()
-        let sessions = syncAwait { try await UtenaDaemonClient.shared.fetchOnce() } ?? []
-        let result = SessionPickerController.run(sessions: sessions)
-        switch result {
-        case .cancel:
-            // Re-open the switcher so the launcher remains usable.
-            if let win = window { switcher.open(near: win) }
-        case .attach(let s):
-            guard let n = s.tmuxSession?.name else { return }
-            openTmuxAndClose(launch: .attach(tmuxName: n))
-        case .create(let name, let wsId, let branch):
-            openTmuxAndClose(launch: .create(name: name, workspaceId: wsId, branch: branch))
+
+        let picker = NewSessionPanelController()
+        picker.onComplete = { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .cancel:
+                // Re-open the switcher so the launcher remains usable.
+                if let win = self.window { self.switcher.open(near: win) }
+            case .attach(let s):
+                guard let n = s.tmuxSession?.name else { return }
+                self.openTmuxAndClose(launch: .attach(tmuxName: n))
+            case .create(let name, let wsId, let branch):
+                self.openTmuxAndClose(launch: .create(name: name, workspaceId: wsId, branch: branch))
+            }
         }
+        self.newSessionPicker = picker
+        if let win = window { picker.open(near: win) }
     }
 
     func switcherDeleteSession(id: UInt) {
@@ -107,17 +113,4 @@ extension LauncherWindowController: SwitcherDelegate {
         // closing the parent of a dismissed panel mid-event.
         DispatchQueue.main.async { [weak self] in self?.close() }
     }
-}
-
-// Blocks the calling thread until an async throwing operation completes.
-// Use only from synchronous main-thread init (mirrors NSAlert.runModal() behavior).
-private func syncAwait<T>(_ work: @Sendable @escaping () async throws -> T) -> T? {
-    var result: T?
-    let sem = DispatchSemaphore(value: 0)
-    Task.detached {
-        result = try? await work()
-        sem.signal()
-    }
-    sem.wait()
-    return result
 }
