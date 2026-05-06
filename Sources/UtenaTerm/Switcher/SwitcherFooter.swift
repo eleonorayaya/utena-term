@@ -3,6 +3,7 @@ import AppKit
 /// Bottom keybinds row, grouped by scope (move | session | window | help).
 final class SwitcherFooter: NSView {
     var isInsertMode: Bool = true { didSet { if isInsertMode != oldValue { needsDisplay = true } } }
+    var isDetailFocused: Bool = false { didSet { if isDetailFocused != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         Palette.surfaceDeep.withAlphaComponent(0.6).setFill()
@@ -21,17 +22,27 @@ final class SwitcherFooter: NSView {
                 .k(["⎋"], desc: "normal"),
                 .k(["↑", "↓"], desc: "navigate", joinChar: ""),
             ])
-        } else {
-            // Normal mode footer
-            x = drawGroup(label: "MOVE", at: x, items: [
-                .k(["j", "k"], desc: "row"),
-            ])
-            x = drawGroup(label: "SESSION", at: x, items: [
+        } else if isDetailFocused {
+            // Detail focus mode footer
+            x = drawGroup(label: "DETAIL", at: x, items: [
                 .k(["↵"], desc: "attach"),
-                .k(["c"], desc: "new"),
                 .k(["d", "d"], desc: "delete"),
                 .k(["r"], desc: "repair"),
                 .k(["a"], desc: "archive"),
+            ])
+            x = drawGroup(label: "NAVIGATE", at: x, items: [
+                .k(["↑", "↓"], desc: "rows", joinChar: ""),
+            ])
+        } else {
+            // Normal mode footer
+            x = drawGroup(label: "NAVIGATE", at: x, items: [
+                .k(["↑", "↓"], desc: "rows", joinChar: "/"),
+                .k(["j", "k"], desc: "row"),
+            ])
+            x = drawGroup(label: "ACTION", at: x, items: [
+                .k(["↵"], desc: "attach"),
+                .k(["c"], desc: "new"),
+                .k(["→"], desc: "detail"),
             ])
             x = drawGroup(label: "MODE", at: x, items: [
                 .k(["i", "/"], desc: "search"),
@@ -42,10 +53,10 @@ final class SwitcherFooter: NSView {
             .k(["1", "9"], desc: "jump", joinChar: "–"),
         ])
 
-        // Right-anchored: esc
+        // Right-anchored: esc or back
         let hPad: CGFloat = 14
         var xR = bounds.width - hPad
-        xR = drawKbd(isInsertMode ? "esc" : "esc", rightAnchor: xR)
+        xR = drawKbd(isDetailFocused ? "←" : "esc", rightAnchor: xR)
     }
 
     private enum Item {

@@ -5,8 +5,17 @@ import AppKit
 final class SwitcherDetailView: NSView {
 
     var session: Session? { didSet { needsDisplay = true } }
+    var isFocused: Bool = false { didSet { if isFocused != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
+        // Draw detail focus border if focused
+        if isFocused {
+            Palette.brand.withAlphaComponent(0.5).setStroke()
+            let borderPath = NSBezierPath(rect: bounds)
+            borderPath.lineWidth = 1
+            borderPath.stroke()
+        }
+
         guard let s = session else {
             drawEmpty()
             return
@@ -14,30 +23,18 @@ final class SwitcherDetailView: NSView {
         let pad: CGFloat = 18
         var y = bounds.height - 16
 
-        // SESSION caps + name + status pill
+        // Name + status pill (no SESSION eyebrow)
         y = drawTitleRow(s, top: y, padX: pad)
-        y -= 12
-
-        // Divider
-        y = drawDivider(top: y, padX: pad)
-        y -= 12
+        y -= 14
 
         // Section: workspace, branch, tmux, last used
         y = drawMetadataSection(s, top: y, padX: pad)
-        y -= 14
-
-        // Divider
-        y = drawDivider(top: y, padX: pad)
-        y -= 12
+        y -= 16
 
         // Section: claude sessions
         if !s.claudeSessions.isEmpty {
             y = drawClaudeSection(s, top: y, padX: pad)
-            y -= 14
-
-            // Divider
-            y = drawDivider(top: y, padX: pad)
-            y -= 12
+            y -= 16
         }
 
         // Status error (if any)
@@ -58,23 +55,15 @@ final class SwitcherDetailView: NSView {
 
     @discardableResult
     private func drawTitleRow(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
-        let cap = NSAttributedString(string: "SESSION", attributes: [
-            .font: Palette.monoTinyCaps,
-            .foregroundColor: Palette.textMuted,
-            .kern: 0.6,
-        ])
-        let cs = cap.size()
-        cap.draw(at: NSPoint(x: padX, y: y - cs.height))
-
+        // Name (20pt semibold, no SESSION eyebrow)
         let name = NSAttributedString(string: s.name, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .semibold),
+            .font: NSFont.monospacedSystemFont(ofSize: 20, weight: .semibold),
             .foregroundColor: Palette.textPrimary,
             .kern: -0.2,
         ])
         let ns = name.size()
-        let nameX = padX + cs.width + 10
         let nameBaselineY = y - ns.height + 4
-        name.draw(at: NSPoint(x: nameX, y: nameBaselineY))
+        name.draw(at: NSPoint(x: padX, y: nameBaselineY))
 
         // Status pill next to name, vertically centered with the name
         let pillColor = statusPillColor(for: s.status)
@@ -84,7 +73,7 @@ final class SwitcherDetailView: NSView {
             .foregroundColor: Palette.textPrimary,
         ])
         let statusSize = statusAttr.size()
-        let pillX = nameX + ns.width + 14
+        let pillX = padX + ns.width + 14
         let pillW = statusSize.width + 10
         let pillH = statusSize.height + 4
         // Center pill vertically with the name's center
@@ -97,7 +86,7 @@ final class SwitcherDetailView: NSView {
 
         statusAttr.draw(at: NSPoint(x: pillX + 5, y: pillRect.midY - statusSize.height / 2))
 
-        return y - max(ns.height, cs.height)
+        return y - ns.height
     }
 
     @discardableResult
@@ -152,13 +141,6 @@ final class SwitcherDetailView: NSView {
         return y - labelSize.height - 14
     }
 
-    @discardableResult
-    private func drawDivider(top y: CGFloat, padX: CGFloat) -> CGFloat {
-        Palette.borderSubtle.setFill()
-        let dividerRect = NSRect(x: padX, y: y - 1, width: bounds.width - 2 * padX, height: 1)
-        dividerRect.fill()
-        return y
-    }
 
     @discardableResult
     private func drawClaudeSection(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {

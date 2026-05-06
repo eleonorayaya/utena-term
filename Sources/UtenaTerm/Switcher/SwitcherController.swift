@@ -32,6 +32,7 @@ final class SwitcherController: NSWindowController {
     private var sessionsObserver: NSObjectProtocol?
     private var deleteGuard = DoublePressGuard<UInt>()
     private var isInsertMode = false  // Vim-style: insert (search) vs normal (command) mode. Defaults to normal so j/k navigate immediately.
+    private var isDetailFocused = false  // Detail-focus mode for destructive actions (d/r/a).
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -68,6 +69,7 @@ final class SwitcherController: NSWindowController {
         // Reset to normal mode on each open — j/k navigate immediately;
         // press i or / to switch to insert/search.
         isInsertMode = false
+        isDetailFocused = false
         query = ""
         selectedIndex = 0
         deleteGuard.clear()
@@ -241,11 +243,13 @@ final class SwitcherController: NSWindowController {
             return filtered[selectedIndex]
         }()
         detailView.session = focused
+        detailView.isFocused = isDetailFocused
         header.totalCount = sessions.count
         header.attentionCount = sessions.filter { $0.needsAttention }.count
         header.queryDisplay = query
         header.isInsertMode = isInsertMode
         footer.isInsertMode = isInsertMode
+        footer.isDetailFocused = isDetailFocused
     }
 
     /// Called when daemon publishes new session data; find and update the
@@ -340,10 +344,54 @@ extension SwitcherController: SwitcherKeyHandling {
             close()
             return true
         }
+        if isDetailFocused {
+            return handleDetailKey(event)
+        }
         if isInsertMode {
             return handleInsertKey(event)
         } else {
             return handleNormalKey(event)
+        }
+    }
+
+    private func handleDetailKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case KeyMap.Key.escape, KeyMap.Key.arrowLeft:
+            isDetailFocused = false
+            refreshUI()
+            return true
+        case KeyMap.Key.returnKey:
+            attachSelected()
+            return true
+        case KeyMap.Key.arrowUp:
+            move(by: -1)
+            return true
+        case KeyMap.Key.arrowDown:
+            move(by: +1)
+            return true
+        default:
+            break
+        }
+
+        let chars = event.charactersIgnoringModifiers ?? ""
+        switch chars {
+        case "j":
+            move(by: +1)
+            return true
+        case "k":
+            move(by: -1)
+            return true
+        case "d":
+            deleteSelected()
+            return true
+        case "r":
+            repairSelected()
+            return true
+        case "a":
+            archiveSelected()
+            return true
+        default:
+            return true  // Eat unknown
         }
     }
 
@@ -391,11 +439,14 @@ extension SwitcherController: SwitcherKeyHandling {
         case KeyMap.Key.returnKey:
             attachSelected()
             return true
-        case KeyMap.Key.arrowUp, KeyMap.Key.k:
+        case KeyMap.Key.arrowUp:
             move(by: -1)
             return true
-        case KeyMap.Key.arrowDown, KeyMap.Key.j:
+        case KeyMap.Key.arrowDown:
             move(by: +1)
+            return true
+        case KeyMap.Key.arrowRight:
+            enterDetailFocus()
             return true
         default:
             break
@@ -412,14 +463,8 @@ extension SwitcherController: SwitcherKeyHandling {
         case "c":
             createSession()
             return true
-        case "d":
-            deleteSelected()
-            return true
-        case "r":
-            repairSelected()
-            return true
-        case "a":
-            archiveSelected()
+        case "o":
+            enterDetailFocus()
             return true
         case "i":
             isInsertMode = true
@@ -433,6 +478,11 @@ extension SwitcherController: SwitcherKeyHandling {
         default:
             return true  // Eat all other keys in normal mode
         }
+    }
+
+    private func enterDetailFocus() {
+        isDetailFocused = true
+        refreshUI()
     }
 }
 
