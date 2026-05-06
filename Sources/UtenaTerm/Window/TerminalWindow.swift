@@ -18,6 +18,10 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowPrevWindow()
     /// Kill the focused tmux window (⌃b &).
     func terminalWindowKillTmuxWindow()
+    /// Toggle zoom on focused pane (⌃b z).
+    func terminalWindowToggleZoom()
+    /// Rename focused tmux window (⌃b ,).
+    func terminalWindowRenameWindow()
 }
 
 final class TerminalWindow: NSWindow {
@@ -63,12 +67,24 @@ final class TerminalWindow: NSWindow {
                 case KeyMap.Key.n, KeyMap.Key.l: splitDelegate?.terminalWindowNextWindow();     return
                 case KeyMap.Key.h:               splitDelegate?.terminalWindowPrevWindow();     return
                 case KeyMap.Key.x:               splitDelegate?.terminalWindowClosePane();      return
+                case KeyMap.Key.z:               splitDelegate?.terminalWindowToggleZoom();     return
                 default: break
                 }
                 let chars = event.charactersIgnoringModifiers ?? ""
-                if chars == "&" {
+                switch chars {
+                case "&":
                     splitDelegate?.terminalWindowKillTmuxWindow()
                     return
+                case "%":
+                    splitDelegate?.terminalWindowSplitVertical()
+                    return
+                case "\"":
+                    splitDelegate?.terminalWindowSplitHorizontal()
+                    return
+                case ",":
+                    splitDelegate?.terminalWindowRenameWindow()
+                    return
+                default: break
                 }
                 // ⌃b 1 … ⌃b 9 — jump to window N. Match against the
                 // unmodified character so ANSI/DVORAK layouts agree.

@@ -469,6 +469,32 @@ extension TmuxWindowController: TerminalWindowDelegate {
         controlSession.killWindow(target: id)
     }
 
+    func terminalWindowToggleZoom() {
+        guard let pane = focusedPane else { return }
+        controlSession.toggleZoom(target: pane.paneID)
+    }
+
+    func terminalWindowRenameWindow() {
+        guard let windowID = currentWindowID else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Window"
+        alert.informativeText = "Enter a new name for this window:"
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        textField.stringValue = ""
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        let newName = textField.stringValue
+        guard !newName.isEmpty else { return }
+        controlSession.renameWindow(target: windowID, name: newName)
+    }
+
     private func cycleWindow(by delta: Int) {
         guard let current = currentWindowID,
               let idx = orderedWindowIDs.firstIndex(of: current),

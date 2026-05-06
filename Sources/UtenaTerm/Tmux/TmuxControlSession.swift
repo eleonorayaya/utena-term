@@ -20,6 +20,7 @@ protocol TmuxControlSessionDelegate: AnyObject {
     func session(_ session: TmuxControlSession, didLayoutChange layout: String, forWindow windowID: String)
     func session(_ session: TmuxControlSession, didAddWindow windowID: String)
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String)
+    func session(_ session: TmuxControlSession, didRenameWindow windowID: String, to newName: String)
     func session(_ session: TmuxControlSession, didChangeTo sessionID: String, name: String)
     func session(_ session: TmuxControlSession, didSelectWindow windowID: String)
     func session(_ session: TmuxControlSession, paneDidExit paneID: String)
@@ -154,12 +155,28 @@ final class TmuxControlSession {
         rawWrite("kill-window -t \(windowID)\n")
     }
 
+    func toggleZoom(target paneID: String) {
+        rawWrite("resize-pane -Z -t \(paneID)\n")
+    }
+
+    func renameWindow(target windowID: String, name: String) {
+        // Escape backslashes and quotes to handle spaces and special characters
+        let escaped = name
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        rawWrite("rename-window -t \(windowID) \"\(escaped)\"\n")
+    }
+
     func listSessions() async throws -> String {
         try await send("list-sessions -F '#{session_id} #{session_name}'")
     }
 
     func listWindows() async throws -> String {
         try await send("list-windows -F '#{window_id} #{window_layout}'")
+    }
+
+    func listWindowsWithNames() async throws -> String {
+        try await send("list-windows -F '#{window_id} #{window_name}'")
     }
 
     func refreshClient(cols: Int, rows: Int) {
