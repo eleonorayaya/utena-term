@@ -39,7 +39,7 @@ struct BranchListResponse: Decodable {
 actor UtenaDaemonClient {
     static let shared = UtenaDaemonClient()
 
-    private let baseURL = URL(string: "http://localhost:3333")!
+    let baseURL = URL(string: "http://localhost:3333")!
     private static let pollInterval: UInt64 = 500_000_000 // 500ms
 
     private(set) var cachedSessions: [Session] = []
@@ -188,9 +188,9 @@ actor UtenaDaemonClient {
         return try decoder.decode(SessionsResponse.self, from: data).sessions
     }
 
-    private static let encoder = JSONEncoder()
+    static let encoder = JSONEncoder()
 
-    private static let decoder: JSONDecoder = {
+    static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .custom { path in
             AnyKey(stringValue: convertKey(path.last!.stringValue))

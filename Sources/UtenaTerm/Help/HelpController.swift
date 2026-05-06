@@ -62,19 +62,37 @@ final class HelpController: NSObject, HelpKeyHandling {
     // MARK: - HelpKeyHandling
 
     func helpKeyDown(_ event: NSEvent) -> Bool {
-        // Close on any key (especially ESC or Q)
         let chars = event.charactersIgnoringModifiers ?? ""
+        let keyCode = event.keyCode
+
+        // Close only on these specific keys:
+        switch keyCode {
+        case 0x35:  // ⎋ escape
+            close()
+            return true
+        default:
+            break
+        }
+
+        // Also close on ? (toggle), q, and ⌘w
         switch chars {
-        case "\u{1B}":  // ESC
+        case "?":
             close()
             return true
         case "q", "Q":
             close()
             return true
         default:
-            // Any other key also closes (though user typically presses ESC)
+            break
+        }
+
+        // ⌘w (cmd-w)
+        if event.modifierFlags.contains(.command) && chars == "w" {
             close()
             return true
         }
+
+        // All other keys are eaten (no-op)
+        return true
     }
 }
