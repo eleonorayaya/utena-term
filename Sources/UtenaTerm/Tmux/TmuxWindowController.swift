@@ -366,13 +366,16 @@ extension TmuxWindowController: TerminalWindowDelegate {
         selectWindow(id: orderedWindowIDs[index - 1])
     }
 
-    func terminalWindowNextWindow() {
+    func terminalWindowNextWindow() { cycleWindow(by: +1) }
+    func terminalWindowPrevWindow() { cycleWindow(by: -1) }
+
+    private func cycleWindow(by delta: Int) {
         guard let current = currentWindowID,
               let idx = orderedWindowIDs.firstIndex(of: current),
               !orderedWindowIDs.isEmpty
         else { return }
-        let next = orderedWindowIDs[(idx + 1) % orderedWindowIDs.count]
-        selectWindow(id: next)
+        let n = orderedWindowIDs.count
+        selectWindow(id: orderedWindowIDs[(idx + delta + n) % n])
     }
 }
 

@@ -6,6 +6,8 @@ enum KeyMap {
         static let b: UInt16            = 0x0B
         static let c: UInt16            = 0x08
         static let d: UInt16            = 0x02
+        static let h: UInt16            = 0x04
+        static let l: UInt16            = 0x25
         static let n: UInt16            = 0x2D
         static let p: UInt16            = 0x23
         static let s: UInt16            = 0x01

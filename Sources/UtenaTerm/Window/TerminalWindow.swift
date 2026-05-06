@@ -12,8 +12,10 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowNewWindow()
     /// Jump to window N (1-indexed) in the focused session (⌃b 1 … ⌃b 9).
     func terminalWindowSelectWindow(index: Int)
-    /// Move to the next window in the focused session (⌃b n).
+    /// Move to the next window in the focused session (⌃b n / ⌃b l).
     func terminalWindowNextWindow()
+    /// Move to the previous window in the focused session (⌃b h).
+    func terminalWindowPrevWindow()
 }
 
 final class TerminalWindow: NSWindow {
@@ -60,8 +62,11 @@ final class TerminalWindow: NSWindow {
                 case KeyMap.Key.c:
                     splitDelegate?.terminalWindowNewWindow()
                     return
-                case KeyMap.Key.n:
+                case KeyMap.Key.n, KeyMap.Key.l:
                     splitDelegate?.terminalWindowNextWindow()
+                    return
+                case KeyMap.Key.h:
+                    splitDelegate?.terminalWindowPrevWindow()
                     return
                 default:
                     // ⌃b 1 … ⌃b 9 → jump to window N. Match against the
