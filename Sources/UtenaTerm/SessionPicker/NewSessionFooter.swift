@@ -51,6 +51,9 @@ final class NewSessionFooter: NSView {
             x = drawGroup(label: "NAVIGATE", at: x, items: [
                 .k(["↑", "↓"], desc: "move", joinChar: ""),
             ])
+            x = drawGroup(label: "FILTER", at: x, items: [
+                .k(["type"], desc: "filter"),
+            ])
             x = drawGroup(label: "ACTION", at: x, items: [
                 .k(["↵"], desc: "select"),
             ])
@@ -59,9 +62,11 @@ final class NewSessionFooter: NSView {
             x = drawGroup(label: "NAVIGATE", at: x, items: [
                 .k(["↑", "↓"], desc: "move", joinChar: ""),
             ])
+            x = drawGroup(label: "FILTER", at: x, items: [
+                .k(["type"], desc: "filter"),
+            ])
             x = drawGroup(label: "ACTION", at: x, items: [
                 .k(["↵"], desc: "select"),
-                .k(["n"], desc: "new"),
             ])
 
         case .name:

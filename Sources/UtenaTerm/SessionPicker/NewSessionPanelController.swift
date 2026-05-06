@@ -21,8 +21,11 @@ final class NewSessionPanelController: NSWindowController {
     }
 
     private var currentStep: Step = .pickWorkspace
-    private var workspaces: [Workspace] = []
-    private var branches: [BranchInfo] = []
+    private var query: String = ""
+    private var allWorkspaces: [Workspace] = []
+    private var workspaces: [Workspace] = []  // filtered by query
+    private var allBranches: [BranchInfo] = []
+    private var branches: [BranchInfo] = []  // filtered by query
     private var currentBranch: String?
     private var newBranchName: String?
 
@@ -52,7 +55,10 @@ final class NewSessionPanelController: NSWindowController {
 
     func open(near anchorWindow: NSWindow?) {
         currentStep = .pickWorkspace
+        query = ""
+        allWorkspaces = []
         workspaces = []
+        allBranches = []
         branches = []
         currentBranch = nil
         newBranchName = nil
@@ -60,6 +66,7 @@ final class NewSessionPanelController: NSWindowController {
         // Load workspaces immediately
         footer.isLoading = true
         header.currentStep = .workspace
+        header.query = ""
         listView.update(items: [], selectedIndex: 0)
         footer.currentStep = .workspace
 
@@ -80,7 +87,7 @@ final class NewSessionPanelController: NSWindowController {
         Task { @MainActor in
             do {
                 let ws = try await UtenaDaemonClient.shared.fetchWorkspaces()
-                self.workspaces = ws.sorted { a, b in
+                self.allWorkspaces = ws.sorted { a, b in
                     // Visible workspaces first, then hidden
                     if a.isHidden != b.isHidden { return !a.isHidden }
                     return a.name.localizedCompare(b.name) == .orderedAscending
@@ -169,7 +176,14 @@ final class NewSessionPanelController: NSWindowController {
 
     // MARK: - Step transitions
 
+    private func filtered<T>(_ items: [T], title: (T) -> String) -> [T] {
+        guard !query.isEmpty else { return items }
+        let q = query.lowercased()
+        return items.filter { title($0).lowercased().contains(q) }
+    }
+
     private func updateWorkspaceList() {
+        workspaces = filtered(allWorkspaces) { $0.name }
         let items = workspaces.map { ws in
             NewSessionListView.ListItem(
                 id: "\(ws.id)",
@@ -182,6 +196,7 @@ final class NewSessionPanelController: NSWindowController {
     }
 
     private func updateBranchList() {
+        branches = filtered(allBranches) { $0.name }
         var items = [
             NewSessionListView.ListItem(
                 id: "NEW",
@@ -225,7 +240,9 @@ final class NewSessionPanelController: NSWindowController {
 
     private func transitionToBranchStep(workspace: Workspace) {
         currentStep = .pickBranch(workspace: workspace)
+        query = ""
         header.currentStep = .branch
+        header.query = ""
         footer.currentStep = .branch
         footer.isLoading = true
         footer.errorMessage = nil
@@ -234,7 +251,7 @@ final class NewSessionPanelController: NSWindowController {
         Task { @MainActor in
             do {
                 let response = try await UtenaDaemonClient.shared.fetchBranches(workspaceId: workspace.id)
-                self.branches = response.branches
+                self.allBranches = response.branches
                 self.currentBranch = response.currentBranch
                 self.updateBranchList()
                 self.footer.isLoading = false
@@ -294,7 +311,9 @@ final class NewSessionPanelController: NSWindowController {
 
         case .pickBranch:
             currentStep = .pickWorkspace
+            query = ""
             header.currentStep = .workspace
+            header.query = ""
             footer.currentStep = .workspace
             footer.isLoading = false
             footer.errorMessage = nil
@@ -304,7 +323,9 @@ final class NewSessionPanelController: NSWindowController {
         case .enterName:
             guard case .enterName(let workspace, _) = currentStep else { return }
             currentStep = .pickBranch(workspace: workspace)
+            query = ""
             header.currentStep = .branch
+            header.query = ""
             footer.currentStep = .branch
             footer.isLoading = false
             footer.errorMessage = nil
@@ -353,6 +374,19 @@ final class NewSessionPanelController: NSWindowController {
     }
 }
 
+// MARK: - Helpers
+
+private extension NewSessionPanelController {
+    var isListStep: Bool {
+        switch currentStep {
+        case .pickWorkspace, .pickBranch:
+            return true
+        case .enterName:
+            return false
+        }
+    }
+}
+
 // MARK: - NewSessionKeyHandling
 
 extension NewSessionPanelController: NewSessionKeyHandling {
@@ -364,8 +398,21 @@ extension NewSessionPanelController: NewSessionKeyHandling {
             close()
             return true
         }
+
         switch event.keyCode {
         case KeyMap.Key.escape:
+            if isListStep && !query.isEmpty {
+                // Clear query if non-empty
+                query = ""
+                header.query = ""
+                if case .pickWorkspace = currentStep {
+                    updateWorkspaceList()
+                } else if case .pickBranch = currentStep {
+                    updateBranchList()
+                }
+                return true
+            }
+            // Otherwise go back one step
             goBackOneStep()
             return true
 
@@ -381,25 +428,37 @@ extension NewSessionPanelController: NewSessionKeyHandling {
             listView.move(by: +1)
             return true
 
+        case KeyMap.Key.backspace:
+            if isListStep && !query.isEmpty {
+                query.removeLast()
+                header.query = query
+                if case .pickWorkspace = currentStep {
+                    updateWorkspaceList()
+                } else if case .pickBranch = currentStep {
+                    updateBranchList()
+                }
+                return true
+            }
+            return false
+
         default:
-            let chars = event.charactersIgnoringModifiers ?? ""
-            switch chars {
-            case "j":
-                listView.move(by: +1)
-                return true
-            case "k":
-                listView.move(by: -1)
-                return true
-            case "n":
-                // "n" for "new branch" in the branch step
-                if case .pickBranch = currentStep {
-                    showNewBranchPrompt()
+            // Handle alphanumeric characters as query input in list steps
+            if isListStep {
+                let chars = event.charactersIgnoringModifiers ?? ""
+                if chars.count == 1, let scalar = chars.unicodeScalars.first,
+                   (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_"),
+                   !event.modifierFlags.contains(.command) {
+                    query += chars
+                    header.query = query
+                    if case .pickWorkspace = currentStep {
+                        updateWorkspaceList()
+                    } else if case .pickBranch = currentStep {
+                        updateBranchList()
+                    }
                     return true
                 }
-                return false
-            default:
-                return false
             }
+            return false
         }
     }
 }

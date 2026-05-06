@@ -2,6 +2,7 @@ import AppKit
 
 /// Top header strip: breadcrumb showing the current step in the flow.
 /// Example: "NEW SESSION › workspace › branch › name" with the active step highlighted in brand color.
+/// Also displays the search query (if non-empty) at the right side.
 final class NewSessionHeader: NSView {
     enum Step: Int {
         case workspace = 0
@@ -10,6 +11,7 @@ final class NewSessionHeader: NSView {
     }
 
     var currentStep: Step = .workspace { didSet { if currentStep != oldValue { needsDisplay = true } } }
+    var query: String = "" { didSet { if query != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         // Bottom hairline
@@ -57,6 +59,30 @@ final class NewSessionHeader: NSView {
             let stepSize = stepStr.size()
             stepStr.draw(at: NSPoint(x: x, y: yMid - stepSize.height / 2))
             x += stepSize.width
+        }
+
+        // Right side: query indicator (if non-empty)
+        if !query.isEmpty {
+            let rPad: CGFloat = 18
+            var xR = bounds.width - rPad
+
+            // Query text with magnifying glass glyph
+            let queryStr = NSAttributedString(string: query, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: Palette.textTertiary,
+            ])
+            let querySize = queryStr.size()
+            xR -= querySize.width
+            queryStr.draw(at: NSPoint(x: xR, y: yMid - querySize.height / 2))
+
+            xR -= 6  // spacing
+            let glyphStr = NSAttributedString(string: "🔍", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: Palette.textSubtle,
+            ])
+            let glyphSize = glyphStr.size()
+            xR -= glyphSize.width
+            glyphStr.draw(at: NSPoint(x: xR, y: yMid - glyphSize.height / 2))
         }
     }
 }
