@@ -3,8 +3,11 @@ import GhosttyVt
 
 enum KeyMap {
     enum Key {
+        static let b: UInt16            = 0x0B
         static let d: UInt16            = 0x02
         static let n: UInt16            = 0x2D
+        static let p: UInt16            = 0x23
+        static let s: UInt16            = 0x01
         static let w: UInt16            = 0x0D
         static let leftBracket: UInt16  = 0x21
         static let rightBracket: UInt16 = 0x1E

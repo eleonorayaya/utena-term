@@ -13,6 +13,11 @@ final class TmuxWindowController: NSWindowController {
     private var tabView: NSTabView!
     private let layoutParser = TmuxLayoutParser()
     private var chrome: SessionChrome?
+    private lazy var switcher: SwitcherController = {
+        let s = SwitcherController()
+        s.delegate = self
+        return s
+    }()
 
     convenience init() {
         let initialSize = NSSize(width: 880, height: 550)
@@ -335,6 +340,21 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowClosePane() {
         guard let pane = focusedPane else { return }
         controlSession.killPane(target: pane.paneID)
+    }
+
+    func terminalWindowToggleSwitcher() {
+        if switcher.isOpen { switcher.close() }
+        else { switcher.open(near: window) }
+    }
+}
+
+// MARK: - SwitcherDelegate
+
+extension TmuxWindowController: SwitcherDelegate {
+    var currentSessionName: String { window?.title ?? "" }
+
+    func switcherAttach(tmuxName: String) {
+        controlSession.switchSession(name: tmuxName)
     }
 }
 
