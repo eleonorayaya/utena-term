@@ -30,6 +30,8 @@ final class HelpContentView: NSView {
         ]),
         Section(title: "SESSIONS", items: [
             Entry(chord: "⌃b s / p", action: "switcher"),
+            Entry(chord: "⌃b w", action: "workspaces"),
+            Entry(chord: "⌃b P", action: "pull requests"),
             Entry(chord: "⌃b ?", action: "this help"),
             Entry(chord: "⌘⇧N", action: "new tmux window"),
         ]),

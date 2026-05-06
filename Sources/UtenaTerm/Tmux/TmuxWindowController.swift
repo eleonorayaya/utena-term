@@ -26,6 +26,7 @@ final class TmuxWindowController: NSWindowController {
         return w
     }()
     private lazy var help: HelpController = HelpController()
+    private lazy var pullRequests: PullRequestsController = PullRequestsController()
 
     convenience init() {
         let initialSize = NSSize(width: 880, height: 550)
@@ -479,6 +480,23 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowToggleWorkspaces() {
         if workspaces.isOpen { workspaces.close() }
         else { workspaces.open(near: window) }
+    }
+
+    func terminalWindowTogglePullRequests() {
+        if pullRequests.isOpen { pullRequests.close(); return }
+
+        // Find the current session's workspace
+        Task { @MainActor in
+            let sessions = await UtenaDaemonClient.shared.cachedSessions
+            guard let session = sessions.first(where: { $0.name == self.window?.title || $0.tmuxSession?.name == self.window?.title }),
+                  let ws = session.workspace
+            else {
+                NSSound.beep()
+                return
+            }
+
+            self.pullRequests.open(near: self.window, workspaceId: ws.id, workspaceName: ws.name)
+        }
     }
 
     func terminalWindowToggleHelp() {

@@ -10,6 +10,8 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowToggleSwitcher()
     /// Open / dismiss the workspace management overlay (⌃b w).
     func terminalWindowToggleWorkspaces()
+    /// Open / dismiss the pull requests overlay (⌃b P).
+    func terminalWindowTogglePullRequests()
     /// Open / dismiss the keyboard help overlay (⌃b ?).
     func terminalWindowToggleHelp()
     /// Create a new tmux window in the focused session (⌃b c).
@@ -91,6 +93,9 @@ final class TerminalWindow: NSWindow {
                     return
                 case "?":
                     splitDelegate?.terminalWindowToggleHelp()
+                    return
+                case "P":
+                    splitDelegate?.terminalWindowTogglePullRequests()
                     return
                 default: break
                 }
