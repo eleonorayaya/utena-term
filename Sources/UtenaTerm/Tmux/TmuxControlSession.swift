@@ -43,7 +43,7 @@ final class TmuxControlSession {
 
     private let writeQueue = DispatchQueue(label: "com.utena-term.tmux.write", qos: .userInteractive)
 
-    func start(tmuxPath: String, groupingWith target: String? = nil) throws {
+    func start(tmuxPath: String, attachingTo target: String? = nil) throws {
 
         let master = posix_openpt(O_RDWR | O_NOCTTY)
         precondition(master >= 0, "posix_openpt failed")
@@ -66,7 +66,7 @@ final class TmuxControlSession {
 
         var argv: ContiguousArray<UnsafeMutablePointer<CChar>?>
         if let target {
-            argv = [strdup(tmuxPath), strdup("-CC"), strdup("new-session"), strdup("-t"), strdup(target), nil]
+            argv = [strdup(tmuxPath), strdup("-CC"), strdup("attach-session"), strdup("-t"), strdup(target), nil]
         } else {
             argv = [strdup(tmuxPath), strdup("-CC"), strdup("new-session"), nil]
         }

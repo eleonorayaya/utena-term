@@ -72,22 +72,22 @@ final class TmuxWindowController: NSWindowController {
 
         let daemonSessions = syncAwait { try await UtenaDaemonClient.shared.fetchOnce() } ?? []
         let pickerResult = SessionPickerController.run(sessions: daemonSessions)
-        var groupTarget: String?
+        var attachTarget: String?
 
         switch pickerResult {
         case .cancel:
             win.close(); return
         case .attach(let session):
             guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
-            groupTarget = tmuxName
+            attachTarget = tmuxName
         case .create(let name, let workspaceId):
             guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId) }),
                   let tmuxName = s.tmuxSession?.name else { win.close(); return }
-            groupTarget = tmuxName
+            attachTarget = tmuxName
         }
 
         do {
-            try controlSession.start(tmuxPath: tmuxPath, groupingWith: groupTarget)
+            try controlSession.start(tmuxPath: tmuxPath, attachingTo: attachTarget)
             isReady = true
         } catch {
             win.close()
