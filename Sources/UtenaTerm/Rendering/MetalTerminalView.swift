@@ -143,12 +143,9 @@ final class MetalTerminalView: MTKView {
             if unsafe { text = nil }
         }
 
-        let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text)
-        if ProcessInfo.processInfo.environment["UTENA_KEY_LOG"] != nil {
-            let hex = bytes.map { $0.map { String(format: "%02x", $0) }.joined(separator: " ") } ?? "(nil)"
-            FileHandle.standardError.write(Data("[key↓] code=\(event.keyCode) mods=\(mods) text=\(text ?? "nil") → bytes=\(hex)\n".utf8))
+        if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
+            onInput?(bytes)
         }
-        if let bytes { onInput?(bytes) }
     }
 
     @objc func paste(_ sender: Any?) {

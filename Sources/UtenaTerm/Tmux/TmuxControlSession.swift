@@ -230,11 +230,6 @@ final class TmuxControlSession {
 
     private func rawWrite(_ s: String) {
         let fd = masterFd
-        // TEMP DEBUG: dump every command we send to tmux so we can verify the
-        // send-keys path is actually emitting `-H 0f` for ⌃o etc.
-        if ProcessInfo.processInfo.environment["UTENA_TMUX_LOG"] != nil {
-            FileHandle.standardError.write(Data("[tmux→] \(s)".utf8))
-        }
         writeQueue.async {
             guard fd >= 0 else { return }
             var bytes = Array(s.utf8)

@@ -1,3 +1,5 @@
+- separate branch name and session name prompts in create flow
+- attaching to a session doesn't hydrate existing frame contents
 - attn bar 'git prompts' entry?
 - popup should be grouped with terminal window at OS level
 - session detail view
@@ -7,4 +9,4 @@
 - paramaterize keyboard inputs for easy changes
 - settings file
 - theme system
-- ghostty PTY is not getting correct terminal width (seems to be missing padding) so full width stuff wraps incorrectly
+
