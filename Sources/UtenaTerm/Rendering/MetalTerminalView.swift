@@ -123,14 +123,11 @@ final class MetalTerminalView: MTKView {
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
 
-        // Prefer charactersIgnoringModifiers as the encoder's utf8 text.
-        // event.characters has macOS pre-translate Ctrl+letter to the matching
-        // ASCII control char (Ctrl+O → "\u{0F}") and option-dead-keys to glyphs
-        // the encoder doesn't recognize. Niling out text in those cases left
-        // ghostty with only the key code, which made it return zero bytes for
-        // legacy Ctrl chords — Ctrl+O never made it onto the wire. Function
-        // keys come back as 0xF700–0xF8FF private-use codepoints; null those
-        // out so the encoder falls back to key-code dispatch.
+        // The ghostty encoder needs the unmodified character (ghostty/vt/key/event.h):
+        // not C0/DEL (Ctrl+letter pre-translates) and not the macOS PUA function-key
+        // range (0xF700–0xF8FF) — pass nil for those and let the key-code dispatch.
+        // Option-dead-keys arrive as platform glyphs the encoder can't read, so nil
+        // those too.
         var text: String? = event.charactersIgnoringModifiers
         if event.modifierFlags.contains(.option) {
             text = nil

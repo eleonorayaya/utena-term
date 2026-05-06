@@ -139,34 +139,27 @@ final class TmuxControlSession {
         }
     }
 
-    // Fire-and-forget: sends bytes to a pane.
-    //
-    // Bytes split into runs:
-    //   - Control bytes (< 0x20 or == 0x7F): sent via `send-keys -H <hex>` so
-    //     tmux delivers them as raw bytes to the pane pty (e.g. ⌃c → 0x03,
-    //     ⌃o → 0x0F, ESC → 0x1B). This is the only reliable path: octal
-    //     escapes inside double-quoted args (e.g. "\017") are silently dropped
-    //     by tmux's control-mode command parser, and `-l` doesn't honor them
-    //     either — both paths leave control chords undelivered.
-    //   - Printable + UTF-8 high bytes: quoted, sent WITH -l as literal text.
+    // Fire-and-forget: sends bytes to a pane, split into runs by content type.
+    // Control bytes (< 0x20 or == 0x7F) go through `-H <hex>` — the only
+    // reliable path; both quoted octal escapes and `-l` drop them silently in
+    // control mode. Printable + UTF-8 high bytes go through `-l` as literal
+    // text so multibyte sequences stay intact.
     func sendKeys(pane paneID: String, data: Data) {
-        let bytes = Array(data)
-        var i = 0
-        while i < bytes.count {
-            if Self.isControlByte(bytes[i]) {
+        var i = data.startIndex
+        while i < data.endIndex {
+            if Self.isControlByte(data[i]) {
                 var hexArgs = ""
-                while i < bytes.count, Self.isControlByte(bytes[i]) {
-                    hexArgs += String(format: " %02x", bytes[i])
+                while i < data.endIndex, Self.isControlByte(data[i]) {
+                    hexArgs += String(format: " %02x", data[i])
                     i += 1
                 }
                 rawWrite("send-keys -t \(paneID) -H\(hexArgs)\n")
             } else {
-                var run: [UInt8] = []
-                while i < bytes.count, !Self.isControlByte(bytes[i]) {
-                    run.append(bytes[i])
+                let runStart = i
+                while i < data.endIndex, !Self.isControlByte(data[i]) {
                     i += 1
                 }
-                rawWrite("send-keys -t \(paneID) -l \(Self.tmuxQuoteBytes(run))\n")
+                rawWrite("send-keys -t \(paneID) -l \(Self.tmuxQuoteBytes(data[runStart..<i]))\n")
             }
         }
     }
@@ -248,9 +241,11 @@ final class TmuxControlSession {
             while let nlIdx = lineBuffer.firstIndex(of: 0x0A) {
                 let lineBytes = lineBuffer[lineBuffer.startIndex..<nlIdx]
                 let trimmed = lineBytes.last == 0x0D ? lineBytes.dropLast() : lineBytes
-                let lineCopy = Data(trimmed)
+                // handleLine doesn't synchronously mutate lineBuffer, so we can
+                // hand it the slice directly and only remove the consumed range
+                // afterward — saves a per-line copy on a hot path.
+                handleLine(trimmed)
                 lineBuffer.removeSubrange(lineBuffer.startIndex...nlIdx)
-                handleLine(lineCopy)
             }
         }
         failAllPending()
@@ -263,9 +258,8 @@ final class TmuxControlSession {
     private static let outputPrefix: [UInt8] = Array("%output ".utf8)
 
     private func handleLine(_ rawLine: Data) {
-        // tmux prepends a DCS intro (\033P<params><final-byte>) to the first control-mode
-        // line. Strip it before parsing at the byte level so binary %output payloads
-        // (UTF-8 multibyte, escape sequences) survive untouched.
+        // Strip tmux's DCS intro (`ESC P <params> <0x40-0x7E>`) at the byte
+        // level so binary %output payloads further down survive intact.
         var bytes = rawLine
         if bytes.count >= 2,
            bytes[bytes.startIndex] == 0x1B,
@@ -280,19 +274,16 @@ final class TmuxControlSession {
         }
         if bytes.isEmpty { return }
 
-        // Fast path for %output: bypass the String round-trip. Decoding raw pane
-        // bytes as a Swift String with an ISO-Latin1 fallback (the obvious naïve
-        // path) silently expands every UTF-8 high byte the moment ANY byte in the
-        // line fails UTF-8 validation, producing the â/Â garbled-char bug. Stay in
-        // bytes until we hand off to the VT parser.
+        // %output payloads MUST stay in bytes — decoding through Swift String
+        // with a Latin-1 fallback expands every UTF-8 high byte whenever any
+        // byte in the line fails UTF-8 validation (the â/Â corruption).
         if bytes.count >= Self.outputPrefix.count,
            bytes.prefix(Self.outputPrefix.count).elementsEqual(Self.outputPrefix) {
             let after = bytes.index(bytes.startIndex, offsetBy: Self.outputPrefix.count)
             guard let spaceIdx = bytes[after...].firstIndex(of: 0x20),
                   let paneID = String(bytes: bytes[after..<spaceIdx], encoding: .ascii)
             else { return }
-            let payload = bytes[(spaceIdx + 1)...]
-            let data = ControlLineParser.unescapeOctal(Data(payload))
+            let data = ControlLineParser.unescapeOctal(bytes[(spaceIdx + 1)...])
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.session(self, didReceiveOutput: data, forPane: paneID)
@@ -300,7 +291,7 @@ final class TmuxControlSession {
             return
         }
 
-        // Other events carry only ASCII / simple UTF-8 names — round-trip is safe.
+        // All other events are ASCII / simple UTF-8 names — String is fine.
         let line = String(bytes: bytes, encoding: .utf8)
             ?? String(bytes: bytes, encoding: .isoLatin1)
             ?? ""
@@ -324,12 +315,6 @@ final class TmuxControlSession {
             inBlock = false
             let cont = dequeueContinuation()
             cont?.resume(throwing: TmuxCommandError.commandFailed(output))
-
-        case .output(let paneID, let data):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didReceiveOutput: data, forPane: paneID)
-            }
 
         case .layoutChange(let windowID, let layout):
             DispatchQueue.main.async { [weak self] in
@@ -421,24 +406,25 @@ final class TmuxControlSession {
         return nil
     }
 
-    // Quotes a run of non-control bytes as a double-quoted tmux string.
-    // Caller has already filtered out bytes < 0x20 / 0x7F. UTF-8 high bytes
-    // (0x80-0xFF) pass through unmodified — tmux accepts them inside quotes
-    // when -l is in effect. Only \ and " need escaping.
-    private static func tmuxQuoteBytes(_ bytes: [UInt8]) -> String {
-        var result = "\""
+    // Quotes a run of non-control bytes as a double-quoted tmux string for use
+    // with `send-keys -l`. Caller has already filtered out bytes < 0x20 / 0x7F.
+    // UTF-8 high bytes pass through verbatim, so we build a [UInt8] and decode
+    // the whole thing once — going via `Character(UnicodeScalar(byte))` would
+    // upcast each byte to its Latin-1 codepoint and re-UTF-8-encode, doubling
+    // every multibyte sequence on the wire (typed Cyrillic/CJK/emoji corrupted).
+    private static func tmuxQuoteBytes<C: Sequence>(_ bytes: C) -> String
+        where C.Element == UInt8
+    {
+        var out: [UInt8] = [0x22]                                  // "
         for byte in bytes {
             switch byte {
-            case UInt8(ascii: "\\"):
-                result += "\\\\"
-            case UInt8(ascii: "\""):
-                result += "\\\""
-            default:
-                result.append(Character(UnicodeScalar(byte)))
+            case 0x5C: out.append(contentsOf: [0x5C, 0x5C])        // \  → \\
+            case 0x22: out.append(contentsOf: [0x5C, 0x22])        // "  → \"
+            default:   out.append(byte)
             }
         }
-        result += "\""
-        return result
+        out.append(0x22)
+        return String(decoding: out, as: UTF8.self)
     }
 
     deinit {

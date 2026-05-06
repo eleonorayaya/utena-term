@@ -4,7 +4,6 @@ enum ControlEvent {
     case beginBlock
     case endBlock
     case errorBlock
-    case output(paneID: String, data: Data)
     case layoutChange(windowID: String, layout: String)
     case windowAdd(windowID: String)
     case windowClose(windowID: String)
@@ -31,10 +30,8 @@ struct ControlLineParser {
         case "%error":
             return .errorBlock
 
-        case "%output":
-            guard let paneID = scanner.word() else { return .unknown(line) }
-            let encoded = scanner.remainder()
-            return .output(paneID: paneID, data: Self.unescapeOctal(Data(encoded.utf8)))
+        // %output is intercepted at the byte level by TmuxControlSession before
+        // reaching this string-based parser — see handleLine's fast path.
 
         case "%layout-change":
             guard let windowID = scanner.word(),
@@ -76,66 +73,44 @@ struct ControlLineParser {
         }
     }
 
-    /// Reverses tmux's `vis_data_buf` escaping in `%output` payloads:
-    /// `\\` → byte 0x5C, `\NNN` (3-digit octal) → that byte. Everything else
-    /// passes through verbatim. Operates on `Data` so binary pane content
-    /// (UTF-8 multibyte, escape sequences) survives untouched — the previous
-    /// String-based version forced a lossy round-trip via Latin-1 fallback.
-    static func unescapeOctal(_ data: Data) -> Data {
-        let bytes = Array(data)
-        var result: [UInt8] = []
+    /// Reverses tmux's `vis_data_buf` escaping in `%output` payloads: `\\` → byte
+    /// 0x5C, `\NNN` (3-digit octal) → that byte; everything else passes through.
+    /// Stays in bytes throughout so binary pane content (UTF-8 multibyte, ESC
+    /// sequences) survives untouched.
+    static func unescapeOctal<C: RandomAccessCollection>(_ bytes: C) -> Data
+        where C.Element == UInt8, C.Index == Int
+    {
+        var result = Data()
         result.reserveCapacity(bytes.count)
-        var i = 0
-        while i < bytes.count {
-            guard bytes[i] == UInt8(ascii: "\\") else {
+        var i = bytes.startIndex
+        let end = bytes.endIndex
+        while i < end {
+            guard bytes[i] == 0x5C, i + 1 < end else {
                 result.append(bytes[i])
                 i += 1
                 continue
             }
-            let next = i + 1
-            guard next < bytes.count else {
-                result.append(bytes[i])
-                i = next
-                continue
-            }
-            if bytes[next] == UInt8(ascii: "\\") {
-                result.append(UInt8(ascii: "\\"))
-                i = next + 1
-            } else if next + 2 < bytes.count,
-                      let d1 = octalValue(bytes[next]),
-                      let d2 = octalValue(bytes[next + 1]),
-                      let d3 = octalValue(bytes[next + 2]) {
-                result.append(d1 * 64 + d2 * 8 + d3)
-                i = next + 3
+            let next = bytes[i + 1]
+            if next == 0x5C {
+                result.append(0x5C)
+                i += 2
+            } else if i + 3 < end,
+                      let d1 = octalValue(next),
+                      let d2 = octalValue(bytes[i + 2]),
+                      let d3 = octalValue(bytes[i + 3]) {
+                result.append(d1 &* 64 &+ d2 &* 8 &+ d3)
+                i += 4
             } else {
                 result.append(bytes[i])
-                i = next
+                i += 1
             }
         }
-        return Data(result)
+        return result
     }
 
     private static func octalValue(_ b: UInt8) -> UInt8? {
-        guard b >= UInt8(ascii: "0"), b <= UInt8(ascii: "7") else { return nil }
-        return b - UInt8(ascii: "0")
+        (0x30 ... 0x37).contains(b) ? b - 0x30 : nil
     }
-}
-
-// MARK: - Helpers
-
-func octalEscape(_ data: Data) -> String {
-    var result = ""
-    result.reserveCapacity(data.count)
-    for byte in data {
-        if byte == UInt8(ascii: "\\") {
-            result += "\\\\"
-        } else if byte >= 0x20 && byte < 0x7F {
-            result.append(Character(UnicodeScalar(byte)))
-        } else {
-            result += String(format: "\\%03o", byte)
-        }
-    }
-    return result
 }
 
 private struct Scanner {
