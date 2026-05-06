@@ -16,6 +16,8 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowNextWindow()
     /// Move to the previous window in the focused session (⌃b h).
     func terminalWindowPrevWindow()
+    /// Kill the focused tmux window (⌃b &).
+    func terminalWindowKillTmuxWindow()
 }
 
 final class TerminalWindow: NSWindow {
@@ -56,32 +58,29 @@ final class TerminalWindow: NSWindow {
             if prefixActive {
                 exitPrefix()
                 switch event.keyCode {
-                case KeyMap.Key.s, KeyMap.Key.p:
-                    splitDelegate?.terminalWindowToggleSwitcher()
-                    return
-                case KeyMap.Key.c:
-                    splitDelegate?.terminalWindowNewWindow()
-                    return
-                case KeyMap.Key.n, KeyMap.Key.l:
-                    splitDelegate?.terminalWindowNextWindow()
-                    return
-                case KeyMap.Key.h:
-                    splitDelegate?.terminalWindowPrevWindow()
-                    return
-                default:
-                    // ⌃b 1 … ⌃b 9 → jump to window N. Match against the
-                    // unmodified character so ANSI-vs-DVORAC layouts agree.
-                    if let ch = event.charactersIgnoringModifiers,
-                       ch.count == 1,
-                       let digit = ch.first?.wholeNumberValue,
-                       (1 ... 9).contains(digit) {
-                        splitDelegate?.terminalWindowSelectWindow(index: digit)
-                        return
-                    }
-                    // Unknown chord — eat the keypress so it doesn't leak to
-                    // the terminal. tmux behaves the same way.
+                case KeyMap.Key.s, KeyMap.Key.p: splitDelegate?.terminalWindowToggleSwitcher(); return
+                case KeyMap.Key.c:               splitDelegate?.terminalWindowNewWindow();      return
+                case KeyMap.Key.n, KeyMap.Key.l: splitDelegate?.terminalWindowNextWindow();     return
+                case KeyMap.Key.h:               splitDelegate?.terminalWindowPrevWindow();     return
+                case KeyMap.Key.x:               splitDelegate?.terminalWindowClosePane();      return
+                default: break
+                }
+                let chars = event.charactersIgnoringModifiers ?? ""
+                if chars == "&" {
+                    splitDelegate?.terminalWindowKillTmuxWindow()
                     return
                 }
+                // ⌃b 1 … ⌃b 9 — jump to window N. Match against the
+                // unmodified character so ANSI/DVORAK layouts agree.
+                if chars.count == 1,
+                   let digit = chars.first?.wholeNumberValue,
+                   (1 ... 9).contains(digit)
+                {
+                    splitDelegate?.terminalWindowSelectWindow(index: digit)
+                    return
+                }
+                // Unknown chord — eat it so it doesn't leak to the pane.
+                return
             }
         }
         super.sendEvent(event)

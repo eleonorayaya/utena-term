@@ -77,4 +77,5 @@ extension TerminalWindowController: TerminalWindowDelegate {
     func terminalWindowSelectWindow(index: Int) { /* tmux-only. */ }
     func terminalWindowNextWindow()      { /* tmux-only. */ }
     func terminalWindowPrevWindow()      { /* tmux-only. */ }
+    func terminalWindowKillTmuxWindow()  { /* tmux-only. */ }
 }

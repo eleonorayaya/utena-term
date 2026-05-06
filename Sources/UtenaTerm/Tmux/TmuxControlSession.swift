@@ -149,6 +149,10 @@ final class TmuxControlSession {
         rawWrite("new-window\n")
     }
 
+    func killWindow(target windowID: String) {
+        rawWrite("kill-window -t \(windowID)\n")
+    }
+
     func listSessions() async throws -> String {
         try await send("list-sessions -F '#{session_id} #{session_name}'")
     }

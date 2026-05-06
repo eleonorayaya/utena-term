@@ -292,6 +292,15 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
             currentWindowID = tabView.selectedTabViewItem.flatMap { selected in
                 tabItems.first { $0.value === selected }?.key
             }
+            // The killed window contained the focused pane; hand focus to
+            // the first pane of the now-selected window so the user lands
+            // somewhere typable instead of nowhere.
+            if let newID = currentWindowID,
+               let firstPaneID = windowPanes[newID]?.first,
+               let pane = panes[firstPaneID]
+            {
+                setFocus(pane)
+            }
         }
         if tabView.numberOfTabViewItems == 0 { window?.close() }
         chrome?.windowsDidChange()
@@ -368,6 +377,11 @@ extension TmuxWindowController: TerminalWindowDelegate {
 
     func terminalWindowNextWindow() { cycleWindow(by: +1) }
     func terminalWindowPrevWindow() { cycleWindow(by: -1) }
+
+    func terminalWindowKillTmuxWindow() {
+        guard let id = currentWindowID else { return }
+        controlSession.killWindow(target: id)
+    }
 
     private func cycleWindow(by delta: Int) {
         guard let current = currentWindowID,

@@ -12,6 +12,7 @@ enum KeyMap {
         static let p: UInt16            = 0x23
         static let s: UInt16            = 0x01
         static let w: UInt16            = 0x0D
+        static let x: UInt16            = 0x07
         static let leftBracket: UInt16  = 0x21
         static let rightBracket: UInt16 = 0x1E
         static let returnKey: UInt16    = 0x24
