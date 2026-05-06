@@ -18,7 +18,9 @@ final class SwitcherFooter: NSView {
         x = drawGroup(label: "SESSION", at: x, items: [
             .k(["↵"], desc: "attach"),
             .k(["c"], desc: "new"),
-            .k(["x"], desc: "kill"),
+            .k(["d", "d"], desc: "delete"),
+            .k(["r"], desc: "repair"),
+            .k(["a"], desc: "archive"),
         ])
         x = drawGroup(label: "WINDOW", at: x, items: [
             .k(["1", "9"], desc: "jump", joinChar: "–"),

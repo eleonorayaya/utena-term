@@ -85,6 +85,26 @@ actor UtenaDaemonClient {
         }
     }
 
+    func repairSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)/repair")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func archiveSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)/archive")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
     private func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
         let url = baseURL.appendingPathComponent(path)
         let (data, _) = try await URLSession.shared.data(from: url)

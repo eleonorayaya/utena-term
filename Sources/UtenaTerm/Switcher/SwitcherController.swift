@@ -5,12 +5,21 @@ protocol SwitcherDelegate: AnyObject {
     func switcherAttach(tmuxName: String)
     /// Returns the currently focused session name (so we can highlight it).
     var currentSessionName: String { get }
+    /// Create a new session (open the session picker flow in a new window).
+    func switcherCreateSession()
+    /// Delete a session by id.
+    func switcherDeleteSession(id: UInt)
+    /// Repair a session by id.
+    func switcherRepairSession(id: UInt)
+    /// Archive a session by id.
+    func switcherArchiveSession(id: UInt)
 }
 
-/// Tracks a confirm-on-second-press kill action — set to a session id when
-/// the user first presses `x`, cleared on timeout or successful kill.
-private struct KillConfirmation {
+/// Tracks a confirm-on-second-press action (e.g., delete) — set to a session id when
+/// the user first presses the key, cleared on timeout or successful action.
+private struct PendingConfirmation {
     let sessionId: UInt
+    let action: String  // "delete", etc.
     let expiry: Date
 }
 
@@ -28,7 +37,7 @@ final class SwitcherController: NSWindowController {
     private var selectedIndex: Int = 0
     private var query: String = ""
     private var sessionsObserver: NSObjectProtocol?
-    private var pendingKill: KillConfirmation?
+    private var pendingConfirmation: PendingConfirmation?
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -273,20 +282,39 @@ final class SwitcherController: NSWindowController {
         refreshUI()
     }
 
-    private func killSelected() {
+    private func deleteSelected() {
         guard !filtered.isEmpty else { return }
         let s = filtered[selectedIndex]
         let now = Date()
-        if let pending = pendingKill, pending.sessionId == s.id, pending.expiry > now {
-            // Second press within the window — confirm the kill.
-            pendingKill = nil
+        if let pending = pendingConfirmation, pending.sessionId == s.id, pending.action == "delete", pending.expiry > now {
+            // Second press within the window — confirm the delete.
+            pendingConfirmation = nil
             listView.confirmKillFor = nil
-            Task { try? await UtenaDaemonClient.shared.deleteSession(id: s.id) }
+            delegate?.switcherDeleteSession(id: s.id)
         } else {
-            pendingKill = KillConfirmation(sessionId: s.id, expiry: now.addingTimeInterval(2))
+            pendingConfirmation = PendingConfirmation(sessionId: s.id, action: "delete", expiry: now.addingTimeInterval(3))
             listView.confirmKillFor = s.id
         }
         refreshUI()
+    }
+
+    private func repairSelected() {
+        guard !filtered.isEmpty else { return }
+        let s = filtered[selectedIndex]
+        delegate?.switcherRepairSession(id: s.id)
+    }
+
+    private func archiveSelected() {
+        guard !filtered.isEmpty else { return }
+        let s = filtered[selectedIndex]
+        delegate?.switcherArchiveSession(id: s.id)
+    }
+
+    private func createSession() {
+        pendingConfirmation = nil
+        listView.confirmKillFor = nil
+        delegate?.switcherCreateSession()
+        close()
     }
 
     private func appendQuery(_ s: String) {
@@ -326,13 +354,19 @@ extension SwitcherController: SwitcherKeyHandling {
         switch chars {
         case "j": move(by: +1); return true
         case "k": move(by: -1); return true
-        case "x": killSelected(); return true
+        case "c": createSession(); return true
+        case "d": deleteSelected(); return true
+        case "r": repairSelected(); return true
+        case "a": archiveSelected(); return true
         default: break
         }
         // Other printable single-character keys feed the search query so
         // the user can filter by typing, mirroring tmux/fzf-style pickers.
+        // But skip a, c, d, r which are reserved for actions.
+        let reserved = Set(["a", "c", "d", "r"])
         if chars.count == 1, let scalar = chars.unicodeScalars.first,
-           CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_" || scalar == "/" {
+           !reserved.contains(chars),
+           (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_" || scalar == "/") {
             appendQuery(chars)
             return true
         }
