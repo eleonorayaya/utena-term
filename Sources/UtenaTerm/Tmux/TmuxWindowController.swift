@@ -373,11 +373,29 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         // its newly-created window). Mirror that into our NSTabView so
         // the right content shows.
         DebugLog.log("tmux", "didSelectWindow window=\(windowID) currentWindow=\(currentWindowID ?? "nil") hasTab=\(tabItems[windowID] != nil)")
+        let previousWindowID = currentWindowID
         guard windowID != currentWindowID, tabItems[windowID] != nil else {
             DebugLog.log("tmux", "didSelectWindow SKIPPED (same window or no tab yet)")
             return
         }
         selectWindow(id: windowID)
+
+        // %window-close is unreliable in attach-session mode — tmux often only
+        // sends %session-window-changed. Check if the previous window still
+        // exists and synthesize the close event if it's gone.
+        guard let prev = previousWindowID else { return }
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let output = try? await self.controlSession.listWindows() else { return }
+            let existing = Set(output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line -> String? in
+                let parts = line.split(separator: " ", maxSplits: 1)
+                return parts.first.map(String.init)
+            })
+            DebugLog.log("tmux", "didSelectWindow post-query existing=\(existing) prev=\(prev)")
+            if !existing.contains(prev) {
+                self.session(session, didCloseWindow: prev)
+            }
+        }
     }
 
     func session(_ session: TmuxControlSession, paneDidExit paneID: String) {
