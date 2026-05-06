@@ -7,6 +7,11 @@ final class AttentionNotifier: NSObject {
     private var authorized = false
 
     func start() {
+        // UNUserNotificationCenter throws bundleProxyForCurrentProcess-is-nil
+        // when the host has no bundle identifier — i.e. a bare SwiftPM exe
+        // run via `swift run`. Skip the notifier in that case; it'll wire up
+        // normally when running from a code-signed .app.
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
