@@ -88,6 +88,42 @@ actor UtenaDaemonClient {
         try await get("workspaces", as: WorkspacesResponse.self).workspaces
     }
 
+    func addWorkspace(path: String, asRoot: Bool = false) async throws -> Workspace {
+        let url = baseURL.appendingPathComponent("workspaces")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ["path": path, "as_root": asRoot] as [String: Any]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try Self.decoder.decode(Workspace.self, from: data)
+    }
+
+    func deleteWorkspace(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("workspaces/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func setWorkspaceHidden(id: UInt, hidden: Bool) async throws {
+        let url = baseURL.appendingPathComponent("workspaces/\(id)/hidden")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["hidden": hidden])
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
     func fetchBranches(workspaceId: UInt) async throws -> BranchListResponse {
         try await get("workspaces/\(workspaceId)/branches", as: BranchListResponse.self)
     }

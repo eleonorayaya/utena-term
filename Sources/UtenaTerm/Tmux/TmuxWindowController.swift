@@ -20,6 +20,11 @@ final class TmuxWindowController: NSWindowController {
         s.delegate = self
         return s
     }()
+    private lazy var workspaces: WorkspacesController = {
+        let w = WorkspacesController()
+        w.delegate = self
+        return w
+    }()
     private lazy var help: HelpController = HelpController()
 
     convenience init() {
@@ -471,6 +476,11 @@ extension TmuxWindowController: TerminalWindowDelegate {
         else { switcher.open(near: window) }
     }
 
+    func terminalWindowToggleWorkspaces() {
+        if workspaces.isOpen { workspaces.close() }
+        else { workspaces.open(near: window) }
+    }
+
     func terminalWindowToggleHelp() {
         if help.isOpen { help.close() }
         else { help.open(near: window) }
@@ -560,6 +570,22 @@ extension TmuxWindowController: SwitcherDelegate {
 
     func switcherArchiveSession(id: UInt) {
         Task { try? await UtenaDaemonClient.shared.archiveSession(id: id) }
+    }
+}
+
+// MARK: - WorkspacesDelegate
+
+extension TmuxWindowController: WorkspacesDelegate {
+    func workspacesAddWorkspace() -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.urls.first else { return nil }
+        return url.path
     }
 }
 

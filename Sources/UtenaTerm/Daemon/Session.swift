@@ -71,6 +71,28 @@ struct Workspace: Codable, Equatable {
     let name: String
     let path: String
     let isGitRepo: Bool
+    var isHidden: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, path, isGitRepo, isHidden
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UInt.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        isGitRepo = try c.decode(Bool.self, forKey: .isGitRepo)
+        isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
+    }
+
+    init(id: UInt, name: String, path: String, isGitRepo: Bool, isHidden: Bool = false) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.isGitRepo = isGitRepo
+        self.isHidden = isHidden
+    }
 }
 
 struct GitBranch: Codable, Equatable {

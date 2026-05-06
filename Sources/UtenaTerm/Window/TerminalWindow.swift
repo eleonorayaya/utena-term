@@ -8,6 +8,8 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowClosePane()
     /// Open / dismiss the session switcher overlay (⌃b s or ⌃b p).
     func terminalWindowToggleSwitcher()
+    /// Open / dismiss the workspace management overlay (⌃b w).
+    func terminalWindowToggleWorkspaces()
     /// Open / dismiss the keyboard help overlay (⌃b ?).
     func terminalWindowToggleHelp()
     /// Create a new tmux window in the focused session (⌃b c).
@@ -65,6 +67,7 @@ final class TerminalWindow: NSWindow {
                 exitPrefix()
                 switch event.keyCode {
                 case KeyMap.Key.s, KeyMap.Key.p: splitDelegate?.terminalWindowToggleSwitcher(); return
+                case KeyMap.Key.w:               splitDelegate?.terminalWindowToggleWorkspaces(); return
                 case KeyMap.Key.c:               splitDelegate?.terminalWindowNewWindow();      return
                 case KeyMap.Key.n, KeyMap.Key.l: splitDelegate?.terminalWindowNextWindow();     return
                 case KeyMap.Key.h:               splitDelegate?.terminalWindowPrevWindow();     return
