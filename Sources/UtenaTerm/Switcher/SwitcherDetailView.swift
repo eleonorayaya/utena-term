@@ -73,9 +73,10 @@ final class SwitcherDetailView: NSView {
         ])
         let ns = name.size()
         let nameX = padX + cs.width + 10
-        name.draw(at: NSPoint(x: nameX, y: y - ns.height + 4))
+        let nameBaselineY = y - ns.height + 4
+        name.draw(at: NSPoint(x: nameX, y: nameBaselineY))
 
-        // Status pill next to name
+        // Status pill next to name, vertically centered with the name
         let pillColor = statusPillColor(for: s.status)
         let statusStr = s.status.rawValue
         let statusAttr = NSAttributedString(string: statusStr, attributes: [
@@ -86,7 +87,9 @@ final class SwitcherDetailView: NSView {
         let pillX = nameX + ns.width + 14
         let pillW = statusSize.width + 10
         let pillH = statusSize.height + 4
-        let pillRect = NSRect(x: pillX, y: y - ns.height + 2 - pillH / 2, width: pillW, height: pillH)
+        // Center pill vertically with the name's center
+        let nameCenterY = nameBaselineY + ns.height / 2
+        let pillRect = NSRect(x: pillX, y: nameCenterY - pillH / 2, width: pillW, height: pillH)
 
         pillColor.setFill()
         let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 4, yRadius: 4)

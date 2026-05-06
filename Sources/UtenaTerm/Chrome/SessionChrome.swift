@@ -89,8 +89,13 @@ final class SessionChrome: NSView {
         let name = statusline.sessionName
         let current = sessions.first { $0.name == name || $0.tmuxSession?.name == name }
         statusline.branchName = current?.branchName
-        statusline.attentionNames = sessions
+        let attentionCandidates = sessions
             .filter { $0.needsAttention && $0.name != name && $0.tmuxSession?.name != name }
-            .map { $0.name }
+        statusline.attentionNames = attentionCandidates.map { $0.name }
+
+        DebugLog.log("attention", "update: \(sessions.count) total sessions, \(attentionCandidates.count) with attention")
+        for s in sessions.prefix(3) {
+            DebugLog.log("attention", "  \(s.name): claudeSessions=\(s.claudeSessions.count), needsAttention=\(s.needsAttention)")
+        }
     }
 }
