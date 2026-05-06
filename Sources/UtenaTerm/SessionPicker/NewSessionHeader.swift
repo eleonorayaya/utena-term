@@ -7,7 +7,7 @@ final class NewSessionHeader: NSView {
     enum Step: Int {
         case workspace = 0
         case branch = 1
-        case base = 2
+        case mode = 2
         case name = 3
     }
 
@@ -40,7 +40,7 @@ final class NewSessionHeader: NSView {
         let steps: [(String, Step)] = [
             ("workspace", .workspace),
             ("branch", .branch),
-            ("base", .base),
+            ("mode", .mode),
             ("name", .name),
         ]
 

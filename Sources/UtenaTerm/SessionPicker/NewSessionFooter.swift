@@ -5,7 +5,7 @@ final class NewSessionFooter: NSView {
     enum Step: Int {
         case workspace = 0
         case branch = 1
-        case base = 2
+        case mode = 2
         case name = 3
     }
 
@@ -70,12 +70,9 @@ final class NewSessionFooter: NSView {
                 .k(["↵"], desc: "select"),
             ])
 
-        case .base:
+        case .mode:
             x = drawGroup(label: "NAVIGATE", at: x, items: [
-                .k(["↑", "↓"], desc: "move", joinChar: ""),
-            ])
-            x = drawGroup(label: "FILTER", at: x, items: [
-                .k(["type"], desc: "filter"),
+                .k(["↑", "↓"], desc: "navigate", joinChar: ""),
             ])
             x = drawGroup(label: "ACTION", at: x, items: [
                 .k(["↵"], desc: "select"),
@@ -101,7 +98,7 @@ final class NewSessionFooter: NSView {
             xR -= lSize.width
             label.draw(at: NSPoint(x: xR, y: yMid - lSize.height / 2))
 
-        case .branch, .base, .name:
+        case .branch, .mode, .name:
             xR = KbdGlyph.drawTrailing("esc", rightAnchor: xR, midY: yMid, style: .spacious, background: Palette.surfaceTertiary)
             let label = NSAttributedString(string: "back ", attributes: [
                 .font: Palette.monoBody,
