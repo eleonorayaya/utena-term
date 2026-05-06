@@ -8,16 +8,30 @@ extension Notification.Name {
 
 // MARK: - Branch list response
 
-struct Branch: Decodable, Equatable {
+// Note: Branch is defined in Session.swift. We redeclare it here for decoding
+// the branch list response since it doesn't include the 'id' field.
+struct BranchInfo: Decodable, Equatable {
     let name: String
     let existsLocal: Bool
     let existsRemote: Bool
     let isDirty: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case existsLocal = "exists_local"
+        case existsRemote = "exists_remote"
+        case isDirty = "is_dirty"
+    }
 }
 
 struct BranchListResponse: Decodable {
-    let branches: [Branch]
+    let branches: [BranchInfo]
     let currentBranch: String?
+
+    enum CodingKeys: String, CodingKey {
+        case branches
+        case currentBranch = "current_branch"
+    }
 }
 
 // MARK: - Client

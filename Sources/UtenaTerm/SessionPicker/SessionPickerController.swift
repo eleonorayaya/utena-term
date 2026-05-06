@@ -293,7 +293,7 @@ private final class NewSessionFormView: NSView {
     private let backButton = NSButton()
     private let statusLabel = NSTextField(labelWithString: "")
     private var workspaces: [Workspace] = []
-    private var branches: [Branch] = []
+    private var branches: [BranchInfo] = []
     private var state: State = .selectWorkspace {
         didSet { updateUI() }
     }
