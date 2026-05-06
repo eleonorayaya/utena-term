@@ -113,6 +113,13 @@ final class MetalTerminalView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // ⌘V → paste from system pasteboard. Without this, Cmd-V is forwarded
+        // as a literal "v" press so apps inside the terminal never see paste.
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "v" {
+            paste(self)
+            return
+        }
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
         var text: String? = event.characters
@@ -128,6 +135,21 @@ final class MetalTerminalView: MTKView {
         if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
             onInput?(bytes)
         }
+    }
+
+    @objc func paste(_ sender: Any?) {
+        guard let s = NSPasteboard.general.string(forType: .string), !s.isEmpty else { return }
+        // Bracketed-paste mode (DEC 2004) — apps that opt in via `ESC[?2004h`
+        // get a wrapped chunk so they can detect pasted vs typed input. The VT
+        // parser handles enable/disable; we always send the wrapper bytes and
+        // it's a no-op if bracketed-paste isn't active.
+        let begin: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E]   // ESC[200~
+        let end:   [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]   // ESC[201~
+        var data = Data()
+        data.append(contentsOf: begin)
+        data.append(contentsOf: Array(s.utf8))
+        data.append(contentsOf: end)
+        onInput?(data)
     }
 
     private var scrollAccumY: CGFloat = 0

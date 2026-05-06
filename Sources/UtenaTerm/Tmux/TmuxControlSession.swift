@@ -59,17 +59,32 @@ final class TmuxControlSession {
         _ = ioctl(master, TIOCSWINSZ_REQ, &ws)
 
         let env = ProcessInfo.processInfo.environment
-        let envKeys = ["HOME", "PATH", "USER", "LOGNAME", "LANG", "TMPDIR", "XDG_CONFIG_HOME"]
+        // Forward LC_* in addition to LANG so the inner shell + tmux see a
+        // UTF-8 locale. Falling back to LANG/LC_CTYPE = en_US.UTF-8 when the
+        // host hasn't set them ensures multibyte chars don't get mangled into
+        // single-byte cells (the â/Â everywhere bug).
+        let envKeys = [
+            "HOME", "PATH", "USER", "LOGNAME", "TMPDIR", "XDG_CONFIG_HOME",
+            "LANG", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES",
+        ]
         var envEntries: [String] = ["TERM=screen-256color"]
+        var hadLang = false, hadLcCtype = false
         for key in envKeys {
-            if let val = env[key] { envEntries.append("\(key)=\(val)") }
+            if let val = env[key] {
+                envEntries.append("\(key)=\(val)")
+                if key == "LANG" { hadLang = true }
+                if key == "LC_CTYPE" || key == "LC_ALL" { hadLcCtype = true }
+            }
         }
+        if !hadLang { envEntries.append("LANG=en_US.UTF-8") }
+        if !hadLcCtype { envEntries.append("LC_CTYPE=en_US.UTF-8") }
 
+        // -u forces tmux's UTF-8 mode regardless of locale detection.
         var argv: ContiguousArray<UnsafeMutablePointer<CChar>?>
         if let target {
-            argv = [strdup(tmuxPath), strdup("-CC"), strdup("attach-session"), strdup("-t"), strdup(target), nil]
+            argv = [strdup(tmuxPath), strdup("-u"), strdup("-CC"), strdup("attach-session"), strdup("-t"), strdup(target), nil]
         } else {
-            argv = [strdup(tmuxPath), strdup("-CC"), strdup("new-session"), nil]
+            argv = [strdup(tmuxPath), strdup("-u"), strdup("-CC"), strdup("new-session"), nil]
         }
         var envp: ContiguousArray<UnsafeMutablePointer<CChar>?> =
             ContiguousArray(envEntries.map { strdup($0) } + [nil])
