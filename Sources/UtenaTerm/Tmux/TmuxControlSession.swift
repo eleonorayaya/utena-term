@@ -139,11 +139,39 @@ final class TmuxControlSession {
         }
     }
 
-    // Fire-and-forget: sends literal bytes to a pane.
+    // Fire-and-forget: sends bytes to a pane.
+    //
+    // Bytes split into runs:
+    //   - Control bytes (< 0x20 or == 0x7F): octal-escaped, sent WITHOUT -l so
+    //     tmux interprets them as key codes (e.g. \003 → ⌃c reaches the shell).
+    //   - Printable + UTF-8 high bytes: quoted, sent WITH -l as literal text.
+    //
+    // The previous all-with-`-l` path was broken for control bytes — `-l` makes
+    // tmux take the value as literal characters, so `\003` arrived at the inner
+    // shell as the four-character string `\003` instead of byte 0x03.
     func sendKeys(pane paneID: String, data: Data) {
-        let quoted = Self.tmuxQuoteData(data)
-        rawWrite("send-keys -t \(paneID) -l \(quoted)\n")
+        let bytes = Array(data)
+        var i = 0
+        while i < bytes.count {
+            if Self.isControlByte(bytes[i]) {
+                var run = ""
+                while i < bytes.count, Self.isControlByte(bytes[i]) {
+                    run += String(format: "\\%03o", bytes[i])
+                    i += 1
+                }
+                rawWrite("send-keys -t \(paneID) \"\(run)\"\n")
+            } else {
+                var run: [UInt8] = []
+                while i < bytes.count, !Self.isControlByte(bytes[i]) {
+                    run.append(bytes[i])
+                    i += 1
+                }
+                rawWrite("send-keys -t \(paneID) -l \(Self.tmuxQuoteBytes(run))\n")
+            }
+        }
     }
+
+    private static func isControlByte(_ b: UInt8) -> Bool { b < 0x20 || b == 0x7F }
 
     func splitPane(target paneID: String, vertical: Bool) async throws {
         let flag = vertical ? "-v" : "-h"
@@ -366,20 +394,20 @@ final class TmuxControlSession {
         return nil
     }
 
-    // Quotes binary data as a double-quoted tmux control-mode string.
-    // Octal-escapes control bytes and high bytes; escapes \ and ".
-    private static func tmuxQuoteData(_ data: Data) -> String {
+    // Quotes a run of non-control bytes as a double-quoted tmux string.
+    // Caller has already filtered out bytes < 0x20 / 0x7F. UTF-8 high bytes
+    // (0x80-0xFF) pass through unmodified — tmux accepts them inside quotes
+    // when -l is in effect. Only \ and " need escaping.
+    private static func tmuxQuoteBytes(_ bytes: [UInt8]) -> String {
         var result = "\""
-        for byte in data {
+        for byte in bytes {
             switch byte {
             case UInt8(ascii: "\\"):
                 result += "\\\\"
             case UInt8(ascii: "\""):
                 result += "\\\""
-            case 0x20 ... 0x7E:
-                result.append(Character(UnicodeScalar(byte)))
             default:
-                result += String(format: "\\%03o", byte)
+                result.append(Character(UnicodeScalar(byte)))
             }
         }
         result += "\""
