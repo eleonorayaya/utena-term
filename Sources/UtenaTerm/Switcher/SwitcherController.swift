@@ -35,6 +35,11 @@ final class SwitcherController: NSWindowController {
     private var isDetailFocused = false  // Detail-focus mode for destructive actions (d/r/a).
 
     private let header = SwitcherHeader()
+    private let leftHost = NSView()
+    private let bodyDivider = NSView()
+    // Two leading-anchor constraints we swap based on detail focus.
+    private var detailLeadingSplit: NSLayoutConstraint!
+    private var detailLeadingFull: NSLayoutConstraint!
     private let listView = SwitcherSessionList()
     private let detailView = SwitcherDetailView()
     private let footer = SwitcherFooter()
@@ -118,16 +123,28 @@ final class SwitcherController: NSWindowController {
         body.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(body)
 
+        leftHost.translatesAutoresizingMaskIntoConstraints = false
+        body.addSubview(leftHost)
+
+        bodyDivider.wantsLayer = true
+        bodyDivider.layer?.backgroundColor = Palette.borderSubtle.cgColor
+        bodyDivider.translatesAutoresizingMaskIntoConstraints = false
+        body.addSubview(bodyDivider)
+
         for v in [header, listView, detailView, footer] {
             v.translatesAutoresizingMaskIntoConstraints = false
         }
         root.addSubview(header)
-        body.addSubview(listView)
+        leftHost.addSubview(listView)
+        // Detail is a sibling of leftHost/divider in body so we can swap its
+        // leading anchor between "next to divider" (split) and "body.leading"
+        // (full view) without re-parenting.
         body.addSubview(detailView)
         root.addSubview(footer)
 
-        // Detail is hidden by default; Tab / → / o swaps to it as a full view.
-        detailView.isHidden = true
+        detailLeadingSplit = detailView.leadingAnchor.constraint(equalTo: bodyDivider.trailingAnchor)
+        detailLeadingFull = detailView.leadingAnchor.constraint(equalTo: body.leadingAnchor)
+        detailLeadingSplit.isActive = true   // start in split mode
 
         NSLayoutConstraint.activate([
             blur.topAnchor.constraint(equalTo: root.topAnchor),
@@ -145,14 +162,25 @@ final class SwitcherController: NSWindowController {
             body.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             body.bottomAnchor.constraint(equalTo: footer.topAnchor),
 
-            // List and detail both fill the body; visibility toggles via isHidden.
-            listView.topAnchor.constraint(equalTo: body.topAnchor),
-            listView.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            listView.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-            listView.bottomAnchor.constraint(equalTo: body.bottomAnchor),
+            // Left | divider | (rest) inside body. The "rest" is occupied by
+            // detailView in split mode (constrained right of divider) and by
+            // detailView spanning body in focused mode.
+            leftHost.topAnchor.constraint(equalTo: body.topAnchor),
+            leftHost.bottomAnchor.constraint(equalTo: body.bottomAnchor),
+            leftHost.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            leftHost.trailingAnchor.constraint(equalTo: bodyDivider.leadingAnchor),
+            leftHost.widthAnchor.constraint(equalTo: body.widthAnchor, multiplier: 0.55),
+
+            bodyDivider.topAnchor.constraint(equalTo: body.topAnchor),
+            bodyDivider.bottomAnchor.constraint(equalTo: body.bottomAnchor),
+            bodyDivider.widthAnchor.constraint(equalToConstant: 1),
+
+            listView.topAnchor.constraint(equalTo: leftHost.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: leftHost.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: leftHost.trailingAnchor),
+            listView.bottomAnchor.constraint(equalTo: leftHost.bottomAnchor),
 
             detailView.topAnchor.constraint(equalTo: body.topAnchor),
-            detailView.leadingAnchor.constraint(equalTo: body.leadingAnchor),
             detailView.trailingAnchor.constraint(equalTo: body.trailingAnchor),
             detailView.bottomAnchor.constraint(equalTo: body.bottomAnchor),
 
@@ -211,9 +239,17 @@ final class SwitcherController: NSWindowController {
         }()
         detailView.session = focused
         detailView.isFocused = isDetailFocused
-        // Body swaps between list and detail full-view based on focus.
-        listView.isHidden = isDetailFocused
-        detailView.isHidden = !isDetailFocused
+        // Layout: split (list + side detail) when not focused, full detail
+        // (left pane hidden, detail spans body) when focused.
+        leftHost.isHidden = isDetailFocused
+        bodyDivider.isHidden = isDetailFocused
+        if isDetailFocused {
+            detailLeadingSplit.isActive = false
+            detailLeadingFull.isActive = true
+        } else {
+            detailLeadingFull.isActive = false
+            detailLeadingSplit.isActive = true
+        }
         header.totalCount = sessions.count
         header.attentionCount = sessions.filter { $0.needsAttention }.count
         header.queryDisplay = query
