@@ -143,7 +143,7 @@ final class SwitcherDetailView: NSView {
             .font: Palette.monoBody,
             .foregroundColor: valueColor,
         ])
-        let valueSize = valueAttr.size()
+        _ = valueAttr.size()
         valueAttr.draw(at: NSPoint(x: padX, y: y - labelSize.height - 14))
 
         return y - labelSize.height - 14
