@@ -91,8 +91,8 @@ extension LauncherWindowController: SwitcherDelegate {
             case .attach(let s):
                 guard let n = s.tmuxSession?.name else { return }
                 self.openTmuxAndClose(launch: .attach(tmuxName: n))
-            case .create(let name, let wsId, let branch):
-                self.openTmuxAndClose(launch: .create(name: name, workspaceId: wsId, branch: branch))
+            case .create(let name, let wsId, let branch, let baseBranch, let createWorktree):
+                self.openTmuxAndClose(launch: .create(name: name, workspaceId: wsId, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree))
             }
         }
         self.newSessionPicker = picker

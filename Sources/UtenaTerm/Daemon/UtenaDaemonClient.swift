@@ -154,12 +154,12 @@ actor UtenaDaemonClient {
         try await get("workspaces/\(workspaceId)/branches", as: BranchListResponse.self)
     }
 
-    func createSession(name: String, workspaceId: UInt, branch: String? = nil) async throws -> Session {
+    func createSession(name: String, workspaceId: UInt, branch: String? = nil, baseBranch: String? = nil, createWorktree: Bool = false) async throws -> Session {
         let url = baseURL.appendingPathComponent("sessions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let request = CreateSessionRequest(name: name, workspaceId: workspaceId, branch: branch)
+        let request = CreateSessionRequest(name: name, workspaceId: workspaceId, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree)
         req.httpBody = try Self.encoder.encode(request)
         let (data, _) = try await URLSession.shared.data(for: req)
         var created = try Self.decoder.decode(Session.self, from: data)
@@ -280,11 +280,15 @@ private struct CreateSessionRequest: Encodable {
     let name: String
     let workspaceId: UInt
     let branch: String?
+    let baseBranch: String?
+    let createWorktree: Bool
 
     enum CodingKeys: String, CodingKey {
         case name
         case workspaceId = "workspace_id"
         case branch
+        case baseBranch = "base_branch"
+        case createWorktree = "create_worktree"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -294,5 +298,9 @@ private struct CreateSessionRequest: Encodable {
         if let branch {
             try container.encode(branch, forKey: .branch)
         }
+        if let baseBranch {
+            try container.encode(baseBranch, forKey: .baseBranch)
+        }
+        try container.encode(createWorktree, forKey: .createWorktree)
     }
 }

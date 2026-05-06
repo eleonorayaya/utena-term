@@ -7,7 +7,7 @@ final class NewSessionPanelController: NSWindowController {
     enum Outcome {
         case cancel
         case attach(Session)
-        case create(name: String, workspaceId: UInt, branch: String?)
+        case create(name: String, workspaceId: UInt, branch: String?, baseBranch: String?, createWorktree: Bool)
     }
 
     var onComplete: ((Outcome) -> Void)?
@@ -17,7 +17,8 @@ final class NewSessionPanelController: NSWindowController {
     private enum Step {
         case pickWorkspace
         case pickBranch(workspace: Workspace)
-        case enterName(workspace: Workspace, branch: String?)
+        case pickBaseBranch(workspace: Workspace, newBranchName: String)
+        case enterName(workspace: Workspace, branch: String?, baseBranch: String?, createWorktree: Bool)
     }
 
     private var currentStep: Step = .pickWorkspace
@@ -56,7 +57,7 @@ final class NewSessionPanelController: NSWindowController {
 
     func open(near anchorWindow: NSWindow?) {
         currentStep = .pickWorkspace
-        isInsertMode = true
+        isInsertMode = false
         query = ""
         allWorkspaces = []
         workspaces = []
@@ -69,6 +70,7 @@ final class NewSessionPanelController: NSWindowController {
         footer.isLoading = true
         header.currentStep = .workspace
         header.query = ""
+        header.modeIndicator = .normal
         listView.update(items: [], selectedIndex: 0)
         footer.currentStep = .workspace
 
@@ -197,16 +199,17 @@ final class NewSessionPanelController: NSWindowController {
         listView.update(items: items, selectedIndex: 0)
     }
 
-    private func updateBranchList() {
+    private func updateBranchList(includeNewOption: Bool = true) {
         branches = filtered(allBranches) { $0.name }
-        var items = [
-            NewSessionListView.ListItem(
+        var items: [NewSessionListView.ListItem] = []
+        if includeNewOption {
+            items.append(NewSessionListView.ListItem(
                 id: "NEW",
                 title: "+ New branch",
                 subtitle: "Enter a custom branch name",
                 isCurrentBranch: false
-            )
-        ]
+            ))
+        }
         items += branches.map { branch in
             NewSessionListView.ListItem(
                 id: branch.name,
@@ -227,12 +230,17 @@ final class NewSessionPanelController: NSWindowController {
                 transitionToBranchStep(workspace: workspace)
             }
 
-        case .pickBranch:
+        case .pickBranch(let workspace):
             if selected.id == "NEW" {
-                // Prompt for new branch name
-                showNewBranchPrompt()
+                // Prompt for new branch name, then transition to pickBaseBranch
+                showNewBranchPrompt(workspace: workspace)
             } else if let branch = branches.first(where: { $0.name == selected.id }) {
-                transitionToNameStep(branch: branch.name)
+                transitionToNameStep(workspace: workspace, branch: branch.name, baseBranch: nil, createWorktree: false)
+            }
+
+        case .pickBaseBranch(let workspace, let newBranchName):
+            if let branch = branches.first(where: { $0.name == selected.id }) {
+                transitionToNameStep(workspace: workspace, branch: newBranchName, baseBranch: branch.name, createWorktree: true)
             }
 
         case .enterName:
@@ -243,10 +251,10 @@ final class NewSessionPanelController: NSWindowController {
     private func transitionToBranchStep(workspace: Workspace) {
         currentStep = .pickBranch(workspace: workspace)
         query = ""
-        isInsertMode = true
+        isInsertMode = false
         header.currentStep = .branch
         header.query = ""
-        header.modeIndicator = .insert
+        header.modeIndicator = .normal
         footer.currentStep = .branch
         footer.isLoading = true
         footer.errorMessage = nil
@@ -269,9 +277,8 @@ final class NewSessionPanelController: NSWindowController {
         }
     }
 
-    private func transitionToNameStep(branch: String) {
-        guard case .pickBranch(let workspace) = currentStep else { return }
-        currentStep = .enterName(workspace: workspace, branch: branch)
+    private func transitionToNameStep(workspace: Workspace, branch: String, baseBranch: String?, createWorktree: Bool) {
+        currentStep = .enterName(workspace: workspace, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree)
         newBranchName = nil
         header.currentStep = .name
         header.modeIndicator = .hidden
@@ -287,7 +294,7 @@ final class NewSessionPanelController: NSWindowController {
         textField.focus()
     }
 
-    private func showNewBranchPrompt() {
+    private func showNewBranchPrompt(workspace: Workspace) {
         let alert = NSAlert()
         alert.messageText = "New Branch"
         alert.informativeText = "Enter the branch name"
@@ -301,10 +308,26 @@ final class NewSessionPanelController: NSWindowController {
                 let branchName = textField.stringValue.trimmingCharacters(in: .whitespaces)
                 if !branchName.isEmpty {
                     self.newBranchName = branchName
-                    self.transitionToNameStep(branch: branchName)
+                    self.transitionToPickBaseBranchStep(workspace: workspace, newBranchName: branchName)
                 }
             }
         }
+    }
+
+    private func transitionToPickBaseBranchStep(workspace: Workspace, newBranchName: String) {
+        currentStep = .pickBaseBranch(workspace: workspace, newBranchName: newBranchName)
+        query = ""
+        isInsertMode = false
+        header.currentStep = .base
+        header.query = ""
+        header.modeIndicator = .normal
+        footer.currentStep = .base
+        footer.isLoading = false
+        footer.errorMessage = nil
+        footer.needsDisplay = true
+
+        // List is already populated from the previous branch step, just refresh without "+ New"
+        updateBranchList(includeNewOption: false)
     }
 
     private func goBackOneStep() {
@@ -317,36 +340,68 @@ final class NewSessionPanelController: NSWindowController {
         case .pickBranch:
             currentStep = .pickWorkspace
             query = ""
-            isInsertMode = true
+            isInsertMode = false
             header.currentStep = .workspace
             header.query = ""
-            header.modeIndicator = .insert
+            header.modeIndicator = .normal
             footer.currentStep = .workspace
             footer.isLoading = false
             footer.errorMessage = nil
             footer.needsDisplay = true
             updateWorkspaceList()
 
-        case .enterName:
-            guard case .enterName(let workspace, _) = currentStep else { return }
+        case .pickBaseBranch(let workspace, _):
             currentStep = .pickBranch(workspace: workspace)
             query = ""
-            isInsertMode = true
+            isInsertMode = false
             header.currentStep = .branch
             header.query = ""
-            header.modeIndicator = .insert
+            header.modeIndicator = .normal
             footer.currentStep = .branch
             footer.isLoading = false
             footer.errorMessage = nil
             footer.needsDisplay = true
-            listView.isHidden = false
-            textField.isHidden = true
             updateBranchList()
+
+        case .enterName(let workspace, _, _, _):
+            // Check if this was a new branch (has baseBranch); if so, go back to pickBaseBranch
+            guard case .enterName(_, let branch, let baseBranch, _) = currentStep else { return }
+            if baseBranch != nil {
+                // Go back to pickBaseBranch
+                currentStep = .pickBaseBranch(workspace: workspace, newBranchName: branch!)
+                query = ""
+                isInsertMode = false
+                header.currentStep = .base
+                header.query = ""
+                header.modeIndicator = .normal
+                footer.currentStep = .base
+                footer.isLoading = false
+                footer.errorMessage = nil
+                footer.needsDisplay = true
+                listView.isHidden = false
+                textField.isHidden = true
+                updateBranchList(includeNewOption: false)
+            } else {
+                // Go back to pickBranch
+                currentStep = .pickBranch(workspace: workspace)
+                query = ""
+                isInsertMode = false
+                header.currentStep = .branch
+                header.query = ""
+                header.modeIndicator = .normal
+                footer.currentStep = .branch
+                footer.isLoading = false
+                footer.errorMessage = nil
+                footer.needsDisplay = true
+                listView.isHidden = false
+                textField.isHidden = true
+                updateBranchList()
+            }
         }
     }
 
     private func createSessionIfValid() {
-        guard case .enterName(let workspace, let branch) = currentStep else { return }
+        guard case .enterName(let workspace, let branch, let baseBranch, let createWorktree) = currentStep else { return }
         let name = textField.getText()
         guard !name.isEmpty else {
             textField.shake()
@@ -362,9 +417,11 @@ final class NewSessionPanelController: NSWindowController {
                 _ = try await UtenaDaemonClient.shared.createSession(
                     name: name,
                     workspaceId: workspace.id,
-                    branch: branch
+                    branch: branch,
+                    baseBranch: baseBranch,
+                    createWorktree: createWorktree
                 )
-                self.onComplete?(.create(name: name, workspaceId: workspace.id, branch: branch))
+                self.onComplete?(.create(name: name, workspaceId: workspace.id, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree))
                 self.close()
             } catch {
                 DebugLog.log("picker", "createSession failed: \(error)")
@@ -388,7 +445,7 @@ final class NewSessionPanelController: NSWindowController {
 private extension NewSessionPanelController {
     var isListStep: Bool {
         switch currentStep {
-        case .pickWorkspace, .pickBranch:
+        case .pickWorkspace, .pickBranch, .pickBaseBranch:
             return true
         case .enterName:
             return false
@@ -513,6 +570,8 @@ extension NewSessionPanelController: NewSessionKeyHandling {
             updateWorkspaceList()
         } else if case .pickBranch = currentStep {
             updateBranchList()
+        } else if case .pickBaseBranch = currentStep {
+            updateBranchList(includeNewOption: false)
         }
     }
 }
