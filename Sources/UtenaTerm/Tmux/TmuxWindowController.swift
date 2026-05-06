@@ -310,11 +310,24 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         tabView.addTabViewItem(item)
         appendWindowID(windowID)
         chrome?.windowsDidChange()
-        // Past initial attach: a user-initiated new-window. Remember to
-        // switch to it once applyLayout has populated its view.
-        if currentWindowID != nil {
-            pendingSelectAfterLayout.insert(windowID)
-            DebugLog.log("tmux", "didAddWindow queued pendingSelectAfterLayout=\(pendingSelectAfterLayout)")
+        guard currentWindowID != nil else { return }
+        // Past initial attach: user-initiated new-window. In a grouped tmux
+        // session %layout-change may never arrive for the new window, so we
+        // proactively fetch its layout instead of waiting for the event.
+        DebugLog.log("tmux", "didAddWindow fetching layout for new window=\(windowID)")
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let output = try? await self.controlSession.listWindows() else { return }
+            for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+                let parts = line.split(separator: " ", maxSplits: 1)
+                guard parts.count == 2, String(parts[0]) == windowID else { continue }
+                DebugLog.log("tmux", "didAddWindow applying fetched layout for window=\(windowID)")
+                self.applyLayout(String(parts[1]), forWindow: windowID)
+                // Also switch to it — %session-window-changed fired before %window-add,
+                // so didSelectWindow already skipped it. Do it explicitly here.
+                self.selectWindow(id: windowID)
+                break
+            }
         }
     }
 
