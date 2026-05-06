@@ -12,7 +12,7 @@ final class SessionChrome: NSView {
     let statusline = Statusline()
 
     weak var delegate: SessionChromeDelegate?
-    private var daemonTask: Task<Void, Never>?
+    private var sessionsObserver: NSObjectProtocol?
 
     init(contentView: NSView) {
         super.init(frame: .zero)
@@ -46,17 +46,21 @@ final class SessionChrome: NSView {
             self?.delegate?.selectWindow(id: id)
         }
 
-        daemonTask = Task { @MainActor [weak self] in
-            for await sessions in UtenaDaemonClient.shared.sessions {
-                guard let self else { return }
-                self.update(from: sessions)
-            }
+        sessionsObserver = NotificationCenter.default.addObserver(
+            forName: .utenaSessionsDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let sessions = note.userInfo?["sessions"] as? [Session] else { return }
+            self?.update(from: sessions)
         }
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit { daemonTask?.cancel() }
+    deinit {
+        if let sessionsObserver { NotificationCenter.default.removeObserver(sessionsObserver) }
+    }
 
     func windowsDidChange() {
         guard let d = delegate else { return }

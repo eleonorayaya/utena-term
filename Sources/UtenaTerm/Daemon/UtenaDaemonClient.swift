@@ -1,30 +1,30 @@
 import Foundation
 
+extension Notification.Name {
+    /// Posted on the main queue after each successful daemon poll.
+    /// `userInfo["sessions"]` contains the latest `[Session]` snapshot.
+    static let utenaSessionsDidUpdate = Notification.Name("utenaSessionsDidUpdate")
+}
+
 actor UtenaDaemonClient {
     static let shared = UtenaDaemonClient()
 
     private let baseURL = URL(string: "http://localhost:3333")!
     private static let pollInterval: UInt64 = 500_000_000 // 500ms
 
-    let sessions: AsyncStream<[Session]>
-    private let continuation: AsyncStream<[Session]>.Continuation
+    private(set) var cachedSessions: [Session] = []
     private var pollingTask: Task<Void, Never>?
 
-    init() {
-        // Bound the buffer to one snapshot — a slow consumer should see the
-        // latest state, not a backlog of stale ~290KB payloads.
-        (sessions, continuation) = AsyncStream<[Session]>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    }
+    init() {}
 
     func start() {
         pollingTask?.cancel()
-        let continuation = self.continuation
         let baseURL = self.baseURL
-        pollingTask = Task {
+        pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     let result = try await Self.fetchSessions(baseURL: baseURL)
-                    continuation.yield(result)
+                    await self?.publish(result)
                 } catch {
                     // Daemon may not be running yet; keep polling silently.
                 }
@@ -38,14 +38,24 @@ actor UtenaDaemonClient {
         pollingTask = nil
     }
 
+    private func publish(_ sessions: [Session]) {
+        guard sessions != cachedSessions else { return }
+        cachedSessions = sessions
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .utenaSessionsDidUpdate,
+                object: nil,
+                userInfo: ["sessions": sessions]
+            )
+        }
+    }
+
     func fetchOnce() async throws -> [Session] {
         try await Self.fetchSessions(baseURL: baseURL)
     }
 
     func fetchWorkspaces() async throws -> [Workspace] {
-        let url = baseURL.appendingPathComponent("workspaces")
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try Self.decoder.decode(WorkspacesResponse.self, from: data).workspaces
+        try await get("workspaces", as: WorkspacesResponse.self).workspaces
     }
 
     func createSession(name: String, workspaceId: UInt) async throws -> Session {
@@ -63,6 +73,22 @@ actor UtenaDaemonClient {
             if let updated = sessions.first(where: { $0.id == created.id }) { created = updated }
         }
         return created
+    }
+
+    func deleteSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    private func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
+        let url = baseURL.appendingPathComponent(path)
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try Self.decoder.decode(T.self, from: data)
     }
 
     private static func fetchSessions(baseURL: URL) async throws -> [Session] {

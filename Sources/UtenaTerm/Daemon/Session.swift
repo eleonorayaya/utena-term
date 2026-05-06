@@ -1,10 +1,10 @@
 import Foundation
 
-struct SessionsResponse: Codable {
+struct SessionsResponse: Codable, Equatable {
     let sessions: [Session]
 }
 
-struct Session: Codable, Identifiable {
+struct Session: Codable, Identifiable, Equatable {
     let id: UInt
     let name: String
     let status: SessionStatus
@@ -47,14 +47,14 @@ enum SessionStatus: String, Codable {
     case creating, active, broken, deleted, pending, inactive, archived, completed
 }
 
-struct Workspace: Codable {
+struct Workspace: Codable, Equatable {
     let id: UInt
     let name: String
     let path: String
     let isGitRepo: Bool
 }
 
-struct Branch: Codable {
+struct Branch: Codable, Equatable {
     let id: UInt
     let name: String
     let isDirty: Bool
@@ -62,7 +62,7 @@ struct Branch: Codable {
     let existsRemote: Bool
 }
 
-struct TmuxSessionInfo: Codable {
+struct TmuxSessionInfo: Codable, Equatable {
     let id: UInt
     let name: String
     let startDir: String
@@ -83,13 +83,13 @@ struct TmuxSessionInfo: Codable {
     }
 }
 
-struct TmuxWindowInfo: Codable {
+struct TmuxWindowInfo: Codable, Equatable {
     let index: Int
     let name: String
     let active: Bool
 }
 
-struct ClaudeSession: Codable {
+struct ClaudeSession: Codable, Equatable {
     let id: UInt
     let claudeSessionId: String
     let sessionId: UInt
@@ -103,6 +103,6 @@ enum ClaudeSessionStatus: String, Codable {
     case readyForReview = "ready_for_review"
 }
 
-struct WorkspacesResponse: Codable {
+struct WorkspacesResponse: Codable, Equatable {
     let workspaces: [Workspace]
 }
