@@ -332,6 +332,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String) {
+        DebugLog.log("tmux", "didCloseWindow window=\(windowID) orderedWindows=\(orderedWindowIDs)")
         if let item = tabItems.removeValue(forKey: windowID) {
             tabView.removeTabViewItem(item)
         }
@@ -380,6 +381,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, paneDidExit paneID: String) {
+        DebugLog.log("tmux", "paneDidExit pane=\(paneID)")
         // %layout-change follows and handles the removal.
     }
 
