@@ -15,9 +15,8 @@ final class LauncherWindowController: NSWindowController {
         win.titlebarAppearsTransparent = true
         win.isMovableByWindowBackground = true
         win.backgroundColor = Palette.surfaceBackground
-        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
-            win.standardWindowButton(kind)?.isHidden = true
-        }
+        // Keep the close traffic-light visible: the launcher is a discardable
+        // session-picker host, so users always need a way to dismiss it.
 
         // Empty content view with just palette background.
         let empty = NSView(frame: win.contentRect(forFrameRect: win.frame))
@@ -27,9 +26,17 @@ final class LauncherWindowController: NSWindowController {
         win.center()
 
         self.init(window: win)
+        win.delegate = self
 
         let s = SwitcherController()
         s.delegate = self
+        s.onClose = { [weak self] in
+            // The launcher is just a host for the switcher — when the user
+            // dismisses the switcher (Esc in normal mode), the launcher has
+            // no purpose, so close it too. Defer to next tick so we don't
+            // tear down the panel during its own keyDown unwind.
+            DispatchQueue.main.async { self?.close() }
+        }
         self.switcher = s
     }
 
@@ -40,6 +47,16 @@ final class LauncherWindowController: NSWindowController {
             guard let self, let win = self.window else { return }
             self.switcher.open(near: win)
         }
+    }
+}
+
+extension LauncherWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        // Window is going away — hide the floating switcher panel so it
+        // doesn't orphan. Detach onClose first to avoid the panel re-closing
+        // us mid-teardown.
+        switcher?.onClose = nil
+        switcher?.close()
     }
 }
 

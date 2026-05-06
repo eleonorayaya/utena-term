@@ -85,8 +85,11 @@ final class SwitcherController: NSWindowController {
         }
     }
 
+    var onClose: (() -> Void)?
+
     override func close() {
         window?.orderOut(nil)
+        onClose?()
     }
 
     var isOpen: Bool { window?.isVisible ?? false }
