@@ -8,6 +8,7 @@ enum ControlEvent {
     case layoutChange(windowID: String, layout: String)
     case windowAdd(windowID: String)
     case windowClose(windowID: String)
+    case windowRenamed(windowID: String, newName: String)
     case sessionChanged(sessionID: String, name: String)
     case sessionWindowChanged(sessionID: String, windowID: String)
     case paneExited(paneID: String)
@@ -47,6 +48,11 @@ struct ControlLineParser {
         case "%window-close":
             guard let windowID = scanner.word() else { return .unknown(line) }
             return .windowClose(windowID: windowID)
+
+        case "%window-renamed":
+            guard let windowID = scanner.word(),
+                  let newName = scanner.word() else { return .unknown(line) }
+            return .windowRenamed(windowID: windowID, newName: newName)
 
         case "%session-changed":
             guard let sessionID = scanner.word(),

@@ -3,6 +3,7 @@ import AppKit
 final class WindowTabRow: NSView {
     var windowIDs: [String] = [] { didSet { if windowIDs != oldValue { needsDisplay = true } } }
     var activeID: String? { didSet { if activeID != oldValue { needsDisplay = true } } }
+    var windowNames: [String: String] = [:] { didSet { if windowNames != oldValue { needsDisplay = true } } }
     var onSelectWindow: ((String) -> Void)?
 
     private var tabFrames: [(id: String, frame: NSRect)] = []
@@ -48,13 +49,25 @@ final class WindowTabRow: NSView {
         var x = region.minX
         for (i, id) in windowIDs.enumerated() {
             let active = id == activeID
-            let label = "\(i + 1)"
-            let labelStr = NSAttributedString(string: label, attributes: [
+            let badge = "\(i + 1)"
+            let windowName = windowNames[id] ?? ""
+
+            // Build the display label: number + name if available
+            let displayLabel: String
+            if !windowName.isEmpty {
+                displayLabel = "\(badge): \(windowName)"
+            } else {
+                displayLabel = badge
+            }
+
+            let displayStr = NSAttributedString(string: displayLabel, attributes: [
                 .font: active ? Palette.monoBodyBold : Palette.monoBody,
                 .foregroundColor: active ? Palette.textPrimary : Palette.textTertiary,
             ])
-            let labelSize = labelStr.size()
-            let tabW = labelSize.width + 28  // generous padding so future names fit
+            let displaySize = displayStr.size()
+
+            // Calculate tab width: badge (14) + 8pt left pad + 8pt name pad + name width + 8pt right pad
+            let tabW = 8 + 14 + 8 + displaySize.width + 8
             let tabRect = NSRect(x: x, y: 0, width: tabW, height: bounds.height - 1)
             if tabRect.maxX > region.maxX { break }
 
@@ -69,14 +82,29 @@ final class WindowTabRow: NSView {
             Palette.borderSubtle.setFill()
             NSRect(x: tabRect.maxX, y: 0, width: 1, height: bounds.height - 1).fill()
 
-            // Numbered index badge inside the tab
+            // Numbered index badge on the left inside the tab
+            let badgeStr = NSAttributedString(string: badge, attributes: [
+                .font: active ? Palette.monoBodyBold : Palette.monoBody,
+                .foregroundColor: active ? Palette.textPrimary : Palette.textTertiary,
+            ])
+            let badgeSize = badgeStr.size()
             let badgeW: CGFloat = 14
             let badgeRect = NSRect(x: tabRect.minX + 8, y: bounds.midY - 7,
                                    width: badgeW, height: 14)
             (active ? Palette.brandStrong : Palette.chipBackground).setFill()
             NSBezierPath(roundedRect: badgeRect, xRadius: 3, yRadius: 3).fill()
-            labelStr.draw(at: NSPoint(x: badgeRect.midX - labelSize.width / 2,
-                                      y: badgeRect.midY - labelSize.height / 2))
+            badgeStr.draw(at: NSPoint(x: badgeRect.midX - badgeSize.width / 2,
+                                      y: badgeRect.midY - badgeSize.height / 2))
+
+            // Window name text to the right of badge
+            if !windowName.isEmpty {
+                let nameStr = NSAttributedString(string: ": \(windowName)", attributes: [
+                    .font: active ? Palette.monoBodyBold : Palette.monoBody,
+                    .foregroundColor: active ? Palette.textPrimary : Palette.textTertiary,
+                ])
+                nameStr.draw(at: NSPoint(x: badgeRect.maxX + 8,
+                                         y: bounds.midY - displaySize.height / 2))
+            }
 
             tabFrames.append((id, tabRect))
             x = tabRect.maxX + 1

@@ -280,6 +280,12 @@ final class TmuxControlSession {
                 self.delegate?.session(self, didCloseWindow: windowID)
             }
 
+        case .windowRenamed(let windowID, let newName):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.session(self, didRenameWindow: windowID, to: newName)
+            }
+
         case .sessionChanged(let sessionID, let name):
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

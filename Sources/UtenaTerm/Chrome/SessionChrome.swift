@@ -5,6 +5,7 @@ protocol SessionChromeDelegate: AnyObject {
     var orderedWindowIDs: [String] { get }
     var activeWindowID: String? { get }
     func selectWindow(id: String)
+    func windowName(forID id: String) -> String?
 }
 
 final class SessionChrome: NSView {
@@ -70,6 +71,13 @@ final class SessionChrome: NSView {
         guard let d = delegate else { return }
         windowTabRow.windowIDs = d.orderedWindowIDs
         windowTabRow.activeID = d.activeWindowID
+        var names: [String: String] = [:]
+        for id in d.orderedWindowIDs {
+            if let name = d.windowName(forID: id) {
+                names[id] = name
+            }
+        }
+        windowTabRow.windowNames = names
     }
 
     func sessionDidChange(to name: String) {

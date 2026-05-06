@@ -14,6 +14,7 @@ final class TmuxWindowController: NSWindowController {
     private var tabView: NSTabView!
     private let layoutParser = TmuxLayoutParser()
     private var chrome: SessionChrome?
+    private var windowNames: [String: String] = [:]  // windowID → name
     private lazy var switcher: SwitcherController = {
         let s = SwitcherController()
         s.delegate = self
@@ -254,6 +255,22 @@ final class TmuxWindowController: NSWindowController {
         focusedPane = nil
         currentWindowID = nil
         lastRefreshedSize = (0, 0)
+        windowNames.removeAll()
+    }
+
+    private func refreshWindowNames() {
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let output = try? await self.controlSession.listWindowsWithNames() else { return }
+            for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+                let parts = line.split(separator: " ", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let windowID = String(parts[0])
+                let windowName = String(parts[1])
+                self.windowNames[windowID] = windowName
+            }
+            self.chrome?.windowsDidChange()
+        }
     }
 
     private func rebuildFromSession() async {
@@ -328,6 +345,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
                 self.selectWindow(id: windowID)
                 break
             }
+            self.refreshWindowNames()
         }
     }
 
@@ -358,6 +376,13 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
             }
         }
         if tabView.numberOfTabViewItems == 0 { window?.close() }
+        windowNames.removeValue(forKey: windowID)
+        chrome?.windowsDidChange()
+        refreshWindowNames()
+    }
+
+    func session(_ session: TmuxControlSession, didRenameWindow windowID: String, to newName: String) {
+        windowNames[windowID] = newName
         chrome?.windowsDidChange()
     }
 
@@ -365,7 +390,10 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         tearDownAll()
         window?.title = name
         chrome?.sessionDidChange(to: name)
-        Task { await self.rebuildFromSession() }
+        Task {
+            await self.rebuildFromSession()
+            self.refreshWindowNames()
+        }
     }
 
     func session(_ session: TmuxControlSession, didSelectWindow windowID: String) {
@@ -513,6 +541,25 @@ extension TmuxWindowController: SwitcherDelegate {
     func switcherAttach(tmuxName: String) {
         controlSession.switchSession(name: tmuxName)
     }
+
+    func switcherCreateSession() {
+        // Open a new tmux window with the session picker flow
+        if let app = NSApp.delegate as? AppDelegate {
+            app.openTmuxWindow(nil)
+        }
+    }
+
+    func switcherDeleteSession(id: UInt) {
+        Task { try? await UtenaDaemonClient.shared.deleteSession(id: id) }
+    }
+
+    func switcherRepairSession(id: UInt) {
+        Task { try? await UtenaDaemonClient.shared.repairSession(id: id) }
+    }
+
+    func switcherArchiveSession(id: UInt) {
+        Task { try? await UtenaDaemonClient.shared.archiveSession(id: id) }
+    }
 }
 
 // MARK: - SessionChromeDelegate
@@ -534,6 +581,9 @@ extension TmuxWindowController: SessionChromeDelegate {
             DebugLog.log("tmux", "selectWindow no pane to focus for window=\(id) windowPanes=\(windowPanes[id] ?? [])")
         }
         chrome?.windowsDidChange()
+    }
+    func windowName(forID id: String) -> String? {
+        windowNames[id]
     }
 }
 
