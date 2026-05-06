@@ -73,5 +73,7 @@ extension TerminalWindowController: TerminalWindowDelegate {
     func terminalWindowFocusPrev()       { splitManager.focusPrev() }
     func terminalWindowClosePane()       { splitManager.closePane(splitManager.focusedPane) }
     func terminalWindowToggleSwitcher()  { /* Switcher is tmux-only — no-op for plain terminal windows. */ }
-    func terminalWindowNewWindow()       { /* tmux-only — plain terminal windows have no concept of "windows". */ }
+    func terminalWindowNewWindow()       { /* tmux-only. */ }
+    func terminalWindowSelectWindow(index: Int) { /* tmux-only. */ }
+    func terminalWindowNextWindow()      { /* tmux-only. */ }
 }

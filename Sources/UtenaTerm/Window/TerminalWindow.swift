@@ -10,6 +10,10 @@ protocol TerminalWindowDelegate: AnyObject {
     func terminalWindowToggleSwitcher()
     /// Create a new tmux window in the focused session (⌃b c).
     func terminalWindowNewWindow()
+    /// Jump to window N (1-indexed) in the focused session (⌃b 1 … ⌃b 9).
+    func terminalWindowSelectWindow(index: Int)
+    /// Move to the next window in the focused session (⌃b n).
+    func terminalWindowNextWindow()
 }
 
 final class TerminalWindow: NSWindow {
@@ -56,7 +60,19 @@ final class TerminalWindow: NSWindow {
                 case KeyMap.Key.c:
                     splitDelegate?.terminalWindowNewWindow()
                     return
+                case KeyMap.Key.n:
+                    splitDelegate?.terminalWindowNextWindow()
+                    return
                 default:
+                    // ⌃b 1 … ⌃b 9 → jump to window N. Match against the
+                    // unmodified character so ANSI-vs-DVORAC layouts agree.
+                    if let ch = event.charactersIgnoringModifiers,
+                       ch.count == 1,
+                       let digit = ch.first?.wholeNumberValue,
+                       (1 ... 9).contains(digit) {
+                        splitDelegate?.terminalWindowSelectWindow(index: digit)
+                        return
+                    }
                     // Unknown chord — eat the keypress so it doesn't leak to
                     // the terminal. tmux behaves the same way.
                     return

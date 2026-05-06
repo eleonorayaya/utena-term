@@ -359,6 +359,21 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowNewWindow() {
         controlSession.newWindow()
     }
+
+    func terminalWindowSelectWindow(index: Int) {
+        // 1-indexed in the UI, 0-indexed in orderedWindowIDs.
+        guard index >= 1, index <= orderedWindowIDs.count else { return }
+        selectWindow(id: orderedWindowIDs[index - 1])
+    }
+
+    func terminalWindowNextWindow() {
+        guard let current = currentWindowID,
+              let idx = orderedWindowIDs.firstIndex(of: current),
+              !orderedWindowIDs.isEmpty
+        else { return }
+        let next = orderedWindowIDs[(idx + 1) % orderedWindowIDs.count]
+        selectWindow(id: next)
+    }
 }
 
 // MARK: - SwitcherDelegate
