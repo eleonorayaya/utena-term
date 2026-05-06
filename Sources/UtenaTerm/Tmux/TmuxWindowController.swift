@@ -313,6 +313,14 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         Task { await self.rebuildFromSession() }
     }
 
+    func session(_ session: TmuxControlSession, didSelectWindow windowID: String) {
+        // tmux changed the active window (e.g. after `new-window` selects
+        // its newly-created window). Mirror that into our NSTabView so
+        // the right content shows.
+        guard windowID != currentWindowID, tabItems[windowID] != nil else { return }
+        selectWindow(id: windowID)
+    }
+
     func session(_ session: TmuxControlSession, paneDidExit paneID: String) {
         // %layout-change follows and handles the removal.
     }
@@ -412,6 +420,9 @@ extension TmuxWindowController: SessionChromeDelegate {
         guard let item = tabItems[id] else { return }
         tabView.selectTabViewItem(item)
         currentWindowID = id
+        if let firstPaneID = windowPanes[id]?.first, let pane = panes[firstPaneID] {
+            setFocus(pane)
+        }
         chrome?.windowsDidChange()
     }
 }

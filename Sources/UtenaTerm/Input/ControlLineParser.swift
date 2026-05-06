@@ -9,6 +9,7 @@ enum ControlEvent {
     case windowAdd(windowID: String)
     case windowClose(windowID: String)
     case sessionChanged(sessionID: String, name: String)
+    case sessionWindowChanged(sessionID: String, windowID: String)
     case paneExited(paneID: String)
     case pasteBufferChanged
     case unknown(String)
@@ -51,6 +52,11 @@ struct ControlLineParser {
             guard let sessionID = scanner.word(),
                   let name = scanner.word() else { return .unknown(line) }
             return .sessionChanged(sessionID: sessionID, name: name)
+
+        case "%session-window-changed":
+            guard let sessionID = scanner.word(),
+                  let windowID = scanner.word() else { return .unknown(line) }
+            return .sessionWindowChanged(sessionID: sessionID, windowID: windowID)
 
         case "%pane-exited":
             guard let paneID = scanner.word() else { return .unknown(line) }

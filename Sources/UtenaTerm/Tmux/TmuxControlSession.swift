@@ -21,6 +21,7 @@ protocol TmuxControlSessionDelegate: AnyObject {
     func session(_ session: TmuxControlSession, didAddWindow windowID: String)
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String)
     func session(_ session: TmuxControlSession, didChangeTo sessionID: String, name: String)
+    func session(_ session: TmuxControlSession, didSelectWindow windowID: String)
     func session(_ session: TmuxControlSession, paneDidExit paneID: String)
     func sessionDidClose(_ session: TmuxControlSession)
 }
@@ -265,6 +266,12 @@ final class TmuxControlSession {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.session(self, didChangeTo: sessionID, name: name)
+            }
+
+        case .sessionWindowChanged(_, let windowID):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.session(self, didSelectWindow: windowID)
             }
 
         case .paneExited(let paneID):
