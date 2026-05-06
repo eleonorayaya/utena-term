@@ -222,7 +222,15 @@ final class NewSessionPanelController: NSWindowController {
 
         case .pickBranchMode(let workspace, let baseBranch):
             if selected.id == "USE" {
-                transitionToNameStep(workspace: workspace, branch: baseBranch, baseBranch: nil, createWorktree: true)
+                // Use existing branch directly — session name defaults to the
+                // branch name; no name step needed.
+                performCreateSession(CreateSessionInput(
+                    name: baseBranch,
+                    workspaceId: workspace.id,
+                    branch: baseBranch,
+                    baseBranch: nil,
+                    createWorktree: true
+                ))
             } else if selected.id == "NEW" {
                 showNewBranchPrompt(workspace: workspace, baseBranch: baseBranch)
             }
@@ -294,17 +302,19 @@ final class NewSessionPanelController: NSWindowController {
 
     private func transitionToPickBranchMode(workspace: Workspace, baseBranch: String) {
         setStep(.pickBranchMode(workspace: workspace, baseBranch: baseBranch))
+        // NEW first so it's the default selection — most common path is forking
+        // a fresh branch off the picked one.
         let items = [
-            NewSessionListView.ListItem(
-                id: "USE",
-                title: "Use \(baseBranch)",
-                subtitle: "Create a worktree from the existing branch",
-                isCurrentBranch: false
-            ),
             NewSessionListView.ListItem(
                 id: "NEW",
                 title: "Create new branch off \(baseBranch)",
                 subtitle: "Fork a fresh branch and create a worktree on it",
+                isCurrentBranch: false
+            ),
+            NewSessionListView.ListItem(
+                id: "USE",
+                title: "Use \(baseBranch)",
+                subtitle: "Create a worktree from the existing branch",
                 isCurrentBranch: false
             ),
         ]
@@ -364,17 +374,21 @@ final class NewSessionPanelController: NSWindowController {
             textField.shake()
             return
         }
-
-        footer.isLoading = true
-        footer.errorMessage = nil
-
-        let input = CreateSessionInput(
+        performCreateSession(CreateSessionInput(
             name: name,
             workspaceId: workspace.id,
             branch: branch,
             baseBranch: baseBranch,
             createWorktree: createWorktree
-        )
+        ))
+    }
+
+    /// Dispatches the create-session API call with footer loading/error UI.
+    /// Used by both the name-step submission and the "use existing branch"
+    /// path (which skips naming since the session inherits the branch name).
+    private func performCreateSession(_ input: CreateSessionInput) {
+        footer.isLoading = true
+        footer.errorMessage = nil
         Task { @MainActor [weak self] in
             do {
                 _ = try await UtenaDaemonClient.shared.createSession(input)
@@ -384,7 +398,6 @@ final class NewSessionPanelController: NSWindowController {
                 DebugLog.log("picker", "createSession failed: \(error)")
                 self?.footer.isLoading = false
                 self?.footer.errorMessage = "Failed to create session"
-                // Clear the error after 3 seconds
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                     self?.footer.errorMessage = nil
                 }
