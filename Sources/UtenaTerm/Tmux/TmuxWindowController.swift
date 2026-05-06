@@ -127,8 +127,15 @@ final class TmuxWindowController: NSWindowController {
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
             if currentWindowID == nil {
+                // First window seen — adopt it as current.
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
+            } else {
+                // Past initial attach: a new window appeared (typically
+                // because the user pressed ⌃b c). Mirror tmux's default
+                // auto-select. If %session-window-changed fires too, it's
+                // a no-op (selecting the same window).
+                selectWindow(id: windowID)
             }
         }
         applySplitPositions(view: rootView, node: node, frame: containerFrame)
@@ -269,11 +276,11 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, didAddWindow windowID: String) {
-        guard tabItems[windowID] == nil else { return }
-        let item = NSTabViewItem()
-        item.label = windowID
-        tabItems[windowID] = item
-        tabView.addTabViewItem(item)
+        // Track the window ID for the chrome immediately, but don't create
+        // an empty NSTabViewItem here — NSTabView caches the initial nil
+        // view and won't refresh when applyLayout later assigns the real
+        // root view. applyLayout creates the tab item itself, with the
+        // view set up front.
         appendWindowID(windowID)
         chrome?.windowsDidChange()
     }
