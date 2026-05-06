@@ -6,9 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await UtenaDaemonClient.shared.start() }
-        let controller = TerminalWindowController()
-        controllers.append(controller)
-        controller.showWindow(nil)
+        // Default first window is tmux-backed (with the session picker) so
+        // attach/create works on launch, mirroring ⌘⇧N. Picker cancel
+        // falls back to a plain terminal inside openTmuxWindow.
+        openTmuxWindow(nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
