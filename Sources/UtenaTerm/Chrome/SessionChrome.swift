@@ -14,7 +14,11 @@ final class SessionChrome: NSView {
     weak var delegate: SessionChromeDelegate?
     private var sessionsObserver: NSObjectProtocol?
 
-    init(contentView: NSView) {
+    /// Top inset reserved for the macOS title-bar / traffic-light controls.
+    /// Set to ~28pt when the parent window uses `.fullSizeContentView` so
+    /// pane content doesn't render under the buttons; 0 with a normal title
+    /// bar.
+    init(contentView: NSView, topInset: CGFloat = 0) {
         super.init(frame: .zero)
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
@@ -26,7 +30,7 @@ final class SessionChrome: NSView {
         addSubview(statusline)
 
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor, constant: topInset),
             contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentView.bottomAnchor.constraint(equalTo: windowTabRow.topAnchor),

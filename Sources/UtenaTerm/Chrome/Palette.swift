@@ -91,4 +91,13 @@ enum Palette {
     private static func srgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
+
+    /// Convert an `NSColor` into the `SIMD3<Float>` (sRGB) form used by
+    /// the Metal terminal renderer. Read off the resolved sRGB component
+    /// rather than hardcoding the literal so the renderer stays in lockstep
+    /// with `Palette` if a token's value moves.
+    static func simd3(_ color: NSColor) -> SIMD3<Float> {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        return SIMD3<Float>(Float(c.redComponent), Float(c.greenComponent), Float(c.blueComponent))
+    }
 }

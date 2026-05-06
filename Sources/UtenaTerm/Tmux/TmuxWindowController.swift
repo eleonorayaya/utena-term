@@ -27,12 +27,16 @@ final class TmuxWindowController: NSWindowController {
 
         let win = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: initialSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = "tmux"
-        let chrome = SessionChrome(contentView: tv)
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.isMovableByWindowBackground = true
+        win.backgroundColor = Palette.surfaceBackground
+        let chrome = SessionChrome(contentView: tv, topInset: 28)
         win.contentView = chrome
         win.center()
 

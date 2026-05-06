@@ -17,16 +17,18 @@ final class TerminalWindowController: NSWindowController {
 
         let win = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = "Terminal"
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.isMovableByWindowBackground = true
         win.contentView = initialPane.view
         win.makeFirstResponder(initialPane.view)
         win.center()
-        win.isOpaque = false
-        win.backgroundColor = .clear
+        win.backgroundColor = Palette.surfaceBackground
 
         self.init(window: win)
 
