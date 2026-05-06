@@ -31,7 +31,7 @@ final class SwitcherController: NSWindowController {
     private var query: String = ""
     private var sessionsObserver: NSObjectProtocol?
     private var deleteGuard = DoublePressGuard<UInt>()
-    private var isInsertMode = true  // Vim-style: insert (search) vs normal (command) mode
+    private var isInsertMode = false  // Vim-style: insert (search) vs normal (command) mode. Defaults to normal so j/k navigate immediately.
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -65,8 +65,9 @@ final class SwitcherController: NSWindowController {
     // MARK: - Open / close
 
     func open(near anchorWindow: NSWindow?) {
-        // Reset to insert mode on each open
-        isInsertMode = true
+        // Reset to normal mode on each open — j/k navigate immediately;
+        // press i or / to switch to insert/search.
+        isInsertMode = false
         query = ""
         selectedIndex = 0
         deleteGuard.clear()

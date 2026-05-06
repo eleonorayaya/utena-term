@@ -231,7 +231,10 @@ final class NewSessionPanelController: NSWindowController {
                 // Prompt for new branch name, then transition to pickBaseBranch
                 showNewBranchPrompt(workspace: workspace)
             } else if let branch = branches.first(where: { $0.name == selected.id }) {
-                transitionToNameStep(workspace: workspace, branch: branch.name, baseBranch: nil, createWorktree: false)
+                // Existing branch → create a session as a worktree of it.
+                // (createWorktree=false would land the session in the workspace
+                // dir, which collides with any other session on the same branch.)
+                transitionToNameStep(workspace: workspace, branch: branch.name, baseBranch: nil, createWorktree: true)
             }
 
         case .pickBaseBranch(let workspace, let newBranchName):
