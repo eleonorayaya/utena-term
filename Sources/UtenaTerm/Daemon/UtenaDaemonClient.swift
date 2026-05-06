@@ -6,6 +6,22 @@ extension Notification.Name {
     static let utenaSessionsDidUpdate = Notification.Name("utenaSessionsDidUpdate")
 }
 
+// MARK: - Branch list response
+
+struct Branch: Decodable, Equatable {
+    let name: String
+    let existsLocal: Bool
+    let existsRemote: Bool
+    let isDirty: Bool
+}
+
+struct BranchListResponse: Decodable {
+    let branches: [Branch]
+    let currentBranch: String?
+}
+
+// MARK: - Client
+
 actor UtenaDaemonClient {
     static let shared = UtenaDaemonClient()
 
@@ -58,12 +74,17 @@ actor UtenaDaemonClient {
         try await get("workspaces", as: WorkspacesResponse.self).workspaces
     }
 
-    func createSession(name: String, workspaceId: UInt) async throws -> Session {
+    func fetchBranches(workspaceId: UInt) async throws -> BranchListResponse {
+        try await get("workspaces/\(workspaceId)/branches", as: BranchListResponse.self)
+    }
+
+    func createSession(name: String, workspaceId: UInt, branch: String? = nil) async throws -> Session {
         let url = baseURL.appendingPathComponent("sessions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try Self.encoder.encode(CreateSessionRequest(name: name, workspaceId: workspaceId))
+        let request = CreateSessionRequest(name: name, workspaceId: workspaceId, branch: branch)
+        req.httpBody = try Self.encoder.encode(request)
         let (data, _) = try await URLSession.shared.data(for: req)
         var created = try Self.decoder.decode(Session.self, from: data)
         for _ in 0 ..< 20 {
@@ -182,9 +203,20 @@ private struct AnyKey: CodingKey {
 private struct CreateSessionRequest: Encodable {
     let name: String
     let workspaceId: UInt
+    let branch: String?
 
     enum CodingKeys: String, CodingKey {
         case name
         case workspaceId = "workspace_id"
+        case branch
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(workspaceId, forKey: .workspaceId)
+        if let branch {
+            try container.encode(branch, forKey: .branch)
+        }
     }
 }

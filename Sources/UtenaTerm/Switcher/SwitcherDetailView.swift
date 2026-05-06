@@ -1,7 +1,7 @@
 import AppKit
 
-/// Right column: details of the focused session — name, cwd, branch,
-/// numbered window strip.
+/// Right column: details of the focused session — name, status pill,
+/// workspace, branch, tmux, last used, claude sessions, and error.
 final class SwitcherDetailView: NSView {
 
     var session: Session? { didSet { needsDisplay = true } }
@@ -14,18 +14,36 @@ final class SwitcherDetailView: NSView {
         let pad: CGFloat = 18
         var y = bounds.height - 16
 
-        // SESSION caps + name + cwd
+        // SESSION caps + name + status pill
         y = drawTitleRow(s, top: y, padX: pad)
-        y -= 6
+        y -= 12
 
-        // Metadata: branch, status
-        y = drawMetadata(s, top: y, padX: pad)
-        y -= 18
+        // Divider
+        y = drawDivider(top: y, padX: pad)
+        y -= 12
 
-        // Section: windows
-        y = drawSectionHeader("WINDOWS", top: y, padX: pad)
-        y -= 4
-        y = drawWindows(s, top: y, padX: pad)
+        // Section: workspace, branch, tmux, last used
+        y = drawMetadataSection(s, top: y, padX: pad)
+        y -= 14
+
+        // Divider
+        y = drawDivider(top: y, padX: pad)
+        y -= 12
+
+        // Section: claude sessions
+        if !s.claudeSessions.isEmpty {
+            y = drawClaudeSection(s, top: y, padX: pad)
+            y -= 14
+
+            // Divider
+            y = drawDivider(top: y, padX: pad)
+            y -= 12
+        }
+
+        // Status error (if any)
+        if let err = s.statusError, !err.isEmpty {
+            y = drawStatusError(err, top: y, padX: pad)
+        }
     }
 
     private func drawEmpty() {
@@ -41,9 +59,9 @@ final class SwitcherDetailView: NSView {
     @discardableResult
     private func drawTitleRow(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
         let cap = NSAttributedString(string: "SESSION", attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+            .font: Palette.monoTinyCaps,
             .foregroundColor: Palette.textMuted,
-            .kern: 0.5,
+            .kern: 0.6,
         ])
         let cs = cap.size()
         cap.draw(at: NSPoint(x: padX, y: y - cs.height))
@@ -57,110 +75,151 @@ final class SwitcherDetailView: NSView {
         let nameX = padX + cs.width + 10
         name.draw(at: NSPoint(x: nameX, y: y - ns.height + 4))
 
-        if let cwd = s.workspacePath {
-            let cwdAttr = NSAttributedString(string: cwd, attributes: [
-                .font: Palette.monoBody,
-                .foregroundColor: Palette.textMuted,
-            ])
-            let cs2 = cwdAttr.size()
-            let cwdX = nameX + ns.width + 10
-            let avail = bounds.width - padX - cwdX
-            if cs2.width <= avail {
-                cwdAttr.draw(at: NSPoint(x: cwdX, y: y - cs2.height + 1))
-            } else {
-                // truncate
-                let truncated = truncate(cwd, font: Palette.monoBody, available: avail)
-                let t = NSAttributedString(string: truncated, attributes: [
-                    .font: Palette.monoBody,
-                    .foregroundColor: Palette.textMuted,
-                ])
-                t.draw(at: NSPoint(x: cwdX, y: y - cs2.height + 1))
-            }
-        }
+        // Status pill next to name
+        let pillColor = statusPillColor(for: s.status)
+        let statusStr = s.status.rawValue
+        let statusAttr = NSAttributedString(string: statusStr, attributes: [
+            .font: Palette.monoSmall,
+            .foregroundColor: Palette.textPrimary,
+        ])
+        let statusSize = statusAttr.size()
+        let pillX = nameX + ns.width + 14
+        let pillW = statusSize.width + 10
+        let pillH = statusSize.height + 4
+        let pillRect = NSRect(x: pillX, y: y - ns.height + 2 - pillH / 2, width: pillW, height: pillH)
+
+        pillColor.setFill()
+        let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 4, yRadius: 4)
+        pillPath.fill()
+
+        statusAttr.draw(at: NSPoint(x: pillX + 5, y: pillRect.midY - statusSize.height / 2))
 
         return y - max(ns.height, cs.height)
     }
 
     @discardableResult
-    private func drawMetadata(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
-        var x = padX
-        let yOut = y
+    private func drawMetadataSection(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
+        var yPos = y
 
-        if let branch = s.branchName {
-            x = drawKVPair("branch", branch, x: x, y: yOut, valueColor: Palette.statusWarning)
-            x += 14
-        }
-        x = drawKVPair("status", s.status.rawValue, x: x, y: yOut, valueColor: Palette.textSecondary)
-        if !s.claudeSessions.isEmpty {
-            x += 14
-            let working = s.claudeSessions.filter { $0.status == .working }.count
-            let total = s.claudeSessions.count
-            x = drawKVPair("claude", "\(working)/\(total)", x: x, y: yOut, valueColor: Palette.statusInfo)
-        }
+        // WORKSPACE row
+        let wsValue = s.workspace?.name ?? "—"
+        yPos = drawMetadataRow("WORKSPACE", wsValue, top: yPos, padX: padX)
+        yPos -= 10
 
-        return yOut - 14
+        // BRANCH row
+        let brValue = s.branchName ?? "—"
+        yPos = drawMetadataRow("BRANCH", brValue, top: yPos, padX: padX)
+        yPos -= 10
+
+        // TMUX row
+        let tmuxValue = s.tmuxSessionName ?? "—"
+        yPos = drawMetadataRow("TMUX", tmuxValue, top: yPos, padX: padX)
+        yPos -= 10
+
+        // LAST USED row
+        let lastValue: String
+        if let lastUsed = Date.now <= s.lastUsedAt ? nil : s.lastUsedAt {
+            lastValue = relativeTime(lastUsed)
+        } else {
+            lastValue = "—"
+        }
+        yPos = drawMetadataRow("LAST USED", lastValue, top: yPos, padX: padX)
+
+        return yPos
     }
 
-    private func drawKVPair(_ key: String, _ value: String, x: CGFloat, y: CGFloat, valueColor: NSColor) -> CGFloat {
-        let k = NSAttributedString(string: key, attributes: [
-            .font: Palette.monoBody,
-            .foregroundColor: Palette.textMuted,
+    @discardableResult
+    private func drawMetadataRow(_ label: String, _ value: String, top y: CGFloat, padX: CGFloat) -> CGFloat {
+        let labelAttr = NSAttributedString(string: label, attributes: [
+            .font: Palette.monoTinyCaps,
+            .foregroundColor: Palette.textSubtle,
+            .kern: 0.6,
         ])
-        let ks = k.size()
-        k.draw(at: NSPoint(x: x, y: y - ks.height))
-        let nx = x + ks.width + 6
-        let v = NSAttributedString(string: value, attributes: [
+        let labelSize = labelAttr.size()
+        labelAttr.draw(at: NSPoint(x: padX, y: y - labelSize.height))
+
+        let valueColor = value == "—" ? Palette.textMuted : Palette.textPrimary
+        let valueAttr = NSAttributedString(string: value, attributes: [
             .font: Palette.monoBody,
             .foregroundColor: valueColor,
         ])
-        let vs = v.size()
-        v.draw(at: NSPoint(x: nx, y: y - vs.height))
-        return nx + vs.width
+        let valueSize = valueAttr.size()
+        valueAttr.draw(at: NSPoint(x: padX, y: y - labelSize.height - 14))
+
+        return y - labelSize.height - 14
     }
 
     @discardableResult
-    private func drawSectionHeader(_ text: String, top y: CGFloat, padX: CGFloat) -> CGFloat {
-        let str = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold),
-            .foregroundColor: Palette.textMuted,
+    private func drawDivider(top y: CGFloat, padX: CGFloat) -> CGFloat {
+        Palette.borderSubtle.setFill()
+        let dividerRect = NSRect(x: padX, y: y - 1, width: bounds.width - 2 * padX, height: 1)
+        dividerRect.fill()
+        return y
+    }
+
+    @discardableResult
+    private func drawClaudeSection(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
+        // CLAUDE header
+        let header = NSAttributedString(string: "CLAUDE", attributes: [
+            .font: Palette.monoTinyCaps,
+            .foregroundColor: Palette.textSubtle,
             .kern: 0.6,
         ])
-        let sz = str.size()
-        str.draw(at: NSPoint(x: padX, y: y - sz.height))
-        return y - sz.height - 4
+        let headerSize = header.size()
+        header.draw(at: NSPoint(x: padX, y: y - headerSize.height))
+        var yPos = y - headerSize.height - 10
+
+        // One row per claude session
+        for cs in s.claudeSessions {
+            let bullet = "•"
+            let bulletAttr = NSAttributedString(string: bullet, attributes: [
+                .font: Palette.monoBody,
+                .foregroundColor: Palette.textMuted,
+            ])
+            let bulletSize = bulletAttr.size()
+            bulletAttr.draw(at: NSPoint(x: padX, y: yPos - bulletSize.height))
+
+            let statusColor = claudeStatusColor(for: cs.status)
+            let statusAttr = NSAttributedString(string: cs.status.rawValue, attributes: [
+                .font: Palette.monoBody,
+                .foregroundColor: statusColor,
+            ])
+            let statusSize = statusAttr.size()
+            statusAttr.draw(at: NSPoint(x: padX + bulletSize.width + 6, y: yPos - statusSize.height))
+
+            yPos -= 12
+        }
+
+        return yPos
     }
 
     @discardableResult
-    private func drawWindows(_ s: Session, top y: CGFloat, padX: CGFloat) -> CGFloat {
-        var x = padX
-        var yPos = y - 32
-        let pillH: CGFloat = 28
-        let gap: CGFloat = 6
-        let maxX = bounds.width - padX
+    private func drawStatusError(_ error: String, top y: CGFloat, padX: CGFloat) -> CGFloat {
+        let icon = NSAttributedString(string: "⚠", attributes: [
+            .font: Palette.monoBody,
+            .foregroundColor: Palette.statusError,
+        ])
+        let iconSize = icon.size()
+        icon.draw(at: NSPoint(x: padX, y: y - iconSize.height))
 
-        for (i, w) in s.windows.enumerated() {
-            let label = "\(i + 1)  \(w.name)"
-            let labelStr = NSAttributedString(string: label, attributes: [
+        let errorAttr = NSAttributedString(string: error, attributes: [
+            .font: Palette.monoBody,
+            .foregroundColor: Palette.statusError,
+        ])
+        let errorSize = errorAttr.size()
+        let maxW = bounds.width - padX - iconSize.width - 8
+        if errorSize.width <= maxW {
+            errorAttr.draw(at: NSPoint(x: padX + iconSize.width + 6, y: y - errorSize.height))
+        } else {
+            let truncated = truncate(error, font: Palette.monoBody, available: maxW)
+            let t = NSAttributedString(string: truncated, attributes: [
                 .font: Palette.monoBody,
-                .foregroundColor: w.active ? Palette.textPrimary : Palette.textTertiary,
+                .foregroundColor: Palette.statusError,
             ])
-            let ls = labelStr.size()
-            let pillW = ls.width + 18
-            if x + pillW > maxX {
-                x = padX
-                yPos -= pillH + gap
-            }
-            let pillRect = NSRect(x: x, y: yPos, width: pillW, height: pillH)
-            (w.active ? Palette.brandSoft : Palette.surfacePrimary).setFill()
-            let path = NSBezierPath(roundedRect: pillRect, xRadius: 6, yRadius: 6)
-            path.fill()
-            (w.active ? Palette.brandBorder : Palette.borderSubtle).setStroke()
-            path.stroke()
-            labelStr.draw(at: NSPoint(x: pillRect.midX - ls.width / 2,
-                                      y: pillRect.midY - ls.height / 2))
-            x = pillRect.maxX + gap
+            t.draw(at: NSPoint(x: padX + iconSize.width + 6, y: y - errorSize.height))
         }
-        return yPos
+
+        return y - max(iconSize.height, errorSize.height)
     }
 
     private func truncate(_ s: String, font: NSFont, available: CGFloat) -> String {
@@ -174,5 +233,30 @@ final class SwitcherDetailView: NSView {
             s.removeFirst()
         }
         return s
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func statusPillColor(for status: SessionStatus) -> NSColor {
+        switch status {
+        case .active: return Palette.statusSuccess
+        case .creating, .pending: return Palette.statusWarning
+        case .broken: return Palette.statusError
+        case .inactive, .archived, .completed, .deleted: return Palette.textMuted
+        }
+    }
+
+    private func claudeStatusColor(for status: ClaudeSessionStatus) -> NSColor {
+        switch status {
+        case .needsAttention: return Palette.statusError
+        case .working: return Palette.brand
+        case .readyForReview: return Palette.statusSuccess
+        case .done: return Palette.statusSuccess
+        case .idle: return Palette.textMuted
+        }
     }
 }

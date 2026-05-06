@@ -81,8 +81,8 @@ final class TmuxWindowController: NSWindowController {
         case .attach(let session):
             guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
             attachTarget = tmuxName
-        case .create(let name, let workspaceId):
-            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId) }),
+        case .create(let name, let workspaceId, let branch):
+            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId, branch: branch) }),
                   let tmuxName = s.tmuxSession?.name else { win.close(); return }
             attachTarget = tmuxName
         }
@@ -108,7 +108,6 @@ final class TmuxWindowController: NSWindowController {
         }
         let newPaneIDs = Set(node.leafIDs())
         let oldPaneIDs = Set(windowPanes[windowID] ?? [])
-        DebugLog.log("tmux", "applyLayout window=\(windowID) panes=\(node.leafIDs()) hadTabItem=\(tabItems[windowID] != nil) currentWindow=\(currentWindowID ?? "nil") pendingSwitch=\(pendingSelectAfterLayout)")
 
         for id in oldPaneIDs.subtracting(newPaneIDs) {
             if focusedPane?.paneID == id { focusedPane = nil }
@@ -127,7 +126,6 @@ final class TmuxWindowController: NSWindowController {
             // a fresh tab item with the real view set up front.
             let idx = tabView.indexOfTabViewItem(existing)
             let wasSelected = tabView.selectedTabViewItem === existing
-            DebugLog.log("tmux", "applyLayout IF window=\(windowID) idx=\(idx) wasSelected=\(wasSelected) tabCount=\(tabView.numberOfTabViewItems)")
             if idx != NSNotFound { tabView.removeTabViewItem(existing) }
             let item = NSTabViewItem()
             item.label = windowID
@@ -140,11 +138,9 @@ final class TmuxWindowController: NSWindowController {
             }
             containerFrame = tabView.contentRect
             rootView.frame = containerFrame
-            DebugLog.log("tmux", "applyLayout IF post-insert containerFrame=\(containerFrame) rootView=\(type(of: rootView)) tabCount=\(tabView.numberOfTabViewItems) selected=\(tabView.selectedTabViewItem?.label ?? "nil")")
             let shouldSwitch = wasSelected || pendingSelectAfterLayout.contains(windowID)
             if shouldSwitch {
                 pendingSelectAfterLayout.remove(windowID)
-                DebugLog.log("tmux", "applyLayout IF switching to window=\(windowID)")
                 selectWindow(id: windowID)
             }
         } else {
@@ -155,7 +151,6 @@ final class TmuxWindowController: NSWindowController {
             tabItems[windowID] = item
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
-            DebugLog.log("tmux", "applyLayout ELSE window=\(windowID) containerFrame=\(containerFrame) tabCount=\(tabView.numberOfTabViewItems)")
             if currentWindowID == nil {
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
@@ -314,7 +309,6 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, didLayoutChange layout: String, forWindow windowID: String) {
-        DebugLog.log("tmux", "didLayoutChange window=\(windowID) orderedWindows=\(orderedWindowIDs)")
         applyLayout(layout, forWindow: windowID)
     }
 
@@ -400,10 +394,8 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
         // tmux changed the active window (e.g. after `new-window` selects
         // its newly-created window). Mirror that into our NSTabView so
         // the right content shows.
-        DebugLog.log("tmux", "didSelectWindow window=\(windowID) currentWindow=\(currentWindowID ?? "nil") hasTab=\(tabItems[windowID] != nil)")
         let previousWindowID = currentWindowID
         guard windowID != currentWindowID, tabItems[windowID] != nil else {
-            DebugLog.log("tmux", "didSelectWindow SKIPPED (same window or no tab yet)")
             return
         }
         selectWindow(id: windowID)
@@ -419,7 +411,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
                 let parts = line.split(separator: " ", maxSplits: 1)
                 return parts.first.map(String.init)
             })
-            DebugLog.log("tmux", "didSelectWindow post-query existing=\(existing) prev=\(prev)")
+            DebugLog.log("tmux", "didSelectWindow post-query prev=\(prev) exists=\(!existing.contains(prev))")
             if !existing.contains(prev) {
                 self.session(session, didCloseWindow: prev)
             }
@@ -427,7 +419,6 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, paneDidExit paneID: String) {
-        DebugLog.log("tmux", "paneDidExit pane=\(paneID)")
         // %layout-change follows and handles the removal.
     }
 
@@ -521,6 +512,10 @@ extension TmuxWindowController: TerminalWindowDelegate {
         let newName = textField.stringValue
         guard !newName.isEmpty else { return }
         controlSession.renameWindow(target: windowID, name: newName)
+        // Optimistically update local state immediately instead of waiting for
+        // %window-renamed event.
+        windowNames[windowID] = newName
+        chrome?.windowsDidChange()
     }
 
     private func cycleWindow(by delta: Int) {
@@ -569,16 +564,12 @@ extension TmuxWindowController: SessionChromeDelegate {
     var activeWindowID: String? { currentWindowID }
     func selectWindow(id: String) {
         guard let item = tabItems[id] else {
-            DebugLog.log("tmux", "selectWindow BAIL no tabItem for window=\(id)")
             return
         }
-        DebugLog.log("tmux", "selectWindow window=\(id) itemHasView=\(item.view != nil) panes=\(windowPanes[id] ?? [])")
         tabView.selectTabViewItem(item)
         currentWindowID = id
         if let firstPaneID = windowPanes[id]?.first, let pane = panes[firstPaneID] {
             setFocus(pane)
-        } else {
-            DebugLog.log("tmux", "selectWindow no pane to focus for window=\(id) windowPanes=\(windowPanes[id] ?? [])")
         }
         chrome?.windowsDidChange()
     }

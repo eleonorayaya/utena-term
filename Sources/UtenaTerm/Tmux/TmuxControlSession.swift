@@ -236,7 +236,6 @@ final class TmuxControlSession {
         }
         if line.isEmpty { return }
         let event = parser.parse(line)
-        if line.hasPrefix("%") { DebugLog.log("tmux-raw", line) }
         switch event {
         case .beginBlock:
             outputAccumulator = ""

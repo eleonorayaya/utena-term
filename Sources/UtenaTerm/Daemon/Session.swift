@@ -11,13 +11,14 @@ struct Session: Codable, Identifiable, Equatable {
     let isAttached: Bool
     let lastUsedAt: Date
     let workspace: Workspace?
-    let gitBranch: Branch?
+    let gitBranch: GitBranch?
     let tmuxSession: TmuxSessionInfo?
     let claudeSessions: [ClaudeSession]
+    let statusError: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, status, isAttached, lastUsedAt
-        case workspace, gitBranch, tmuxSession, claudeSessions
+        case workspace, gitBranch, tmuxSession, claudeSessions, statusError
     }
 
     init(from decoder: Decoder) throws {
@@ -28,9 +29,10 @@ struct Session: Codable, Identifiable, Equatable {
         isAttached = try c.decode(Bool.self, forKey: .isAttached)
         lastUsedAt = try c.decode(Date.self, forKey: .lastUsedAt)
         workspace = try c.decodeIfPresent(Workspace.self, forKey: .workspace)
-        gitBranch = try c.decodeIfPresent(Branch.self, forKey: .gitBranch)
+        gitBranch = try c.decodeIfPresent(GitBranch.self, forKey: .gitBranch)
         tmuxSession = try c.decodeIfPresent(TmuxSessionInfo.self, forKey: .tmuxSession)
         claudeSessions = try c.decodeIfPresent([ClaudeSession].self, forKey: .claudeSessions) ?? []
+        statusError = try c.decodeIfPresent(String.self, forKey: .statusError)
     }
 
     // Derived — not on the wire
@@ -41,6 +43,23 @@ struct Session: Codable, Identifiable, Equatable {
     var windows: [TmuxWindowInfo] { tmuxSession?.windows ?? [] }
     var needsAttention: Bool { claudeSessions.contains { $0.status == .needsAttention } }
     var isClaudeWorking: Bool { claudeSessions.contains { $0.status == .working } }
+
+    /// Highest-priority Claude session status in this priority order:
+    /// needs_attention > working > ready_for_review > done > idle
+    var aggregatedClaudeStatus: ClaudeSessionStatus? {
+        let priority: [ClaudeSessionStatus: Int] = [
+            .needsAttention: 0,
+            .working: 1,
+            .readyForReview: 2,
+            .done: 3,
+            .idle: 4,
+        ]
+        return claudeSessions
+            .min { lhs, rhs in
+                (priority[lhs.status] ?? 99) < (priority[rhs.status] ?? 99)
+            }
+            .map { $0.status }
+    }
 }
 
 enum SessionStatus: String, Codable {
@@ -54,7 +73,7 @@ struct Workspace: Codable, Equatable {
     let isGitRepo: Bool
 }
 
-struct Branch: Codable, Equatable {
+struct GitBranch: Codable, Equatable {
     let id: UInt
     let name: String
     let isDirty: Bool

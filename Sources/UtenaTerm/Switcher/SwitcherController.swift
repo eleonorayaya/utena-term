@@ -74,6 +74,7 @@ final class SwitcherController: NSWindowController {
         ) { [weak self] note in
             guard let s = note.userInfo?["sessions"] as? [Session] else { return }
             self?.applySessions(s)
+            self?.updateDetailFromNotification(s)
         }
     }
 
@@ -263,6 +264,16 @@ final class SwitcherController: NSWindowController {
         header.totalCount = sessions.count
         header.attentionCount = sessions.filter { $0.needsAttention }.count
         header.queryDisplay = query
+    }
+
+    /// Called when daemon publishes new session data; find and update the
+    /// currently-selected session in the detail view.
+    private func updateDetailFromNotification(_ allSessions: [Session]) {
+        guard !filtered.isEmpty, selectedIndex < filtered.count else { return }
+        let currentSession = filtered[selectedIndex]
+        if let updated = allSessions.first(where: { $0.id == currentSession.id }) {
+            detailView.session = updated
+        }
     }
 
     // MARK: - Actions
