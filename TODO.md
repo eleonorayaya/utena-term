@@ -1,2 +1,10 @@
-- Fix kitty image display sizes / content flowing around them
-- fix transparency for kitty images (double check that sylveon png actually has transparency first and not just a fake bg)
+- attn bar 'git prompts' entry?
+- popup should be grouped with terminal window at OS level
+- session detail view
+- improve claude section of session detail
+- display windows in session detail
+- consolidate all shortcuts to be tmux-style
+- paramaterize keyboard inputs for easy changes
+- settings file
+- theme system
+- ghostty PTY is not getting correct terminal width (seems to be missing padding) so full width stuff wraps incorrectly

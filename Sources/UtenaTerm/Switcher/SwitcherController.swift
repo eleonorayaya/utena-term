@@ -118,76 +118,43 @@ final class SwitcherController: NSWindowController {
         body.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(body)
 
-        let leftHost = NSView()
-        leftHost.translatesAutoresizingMaskIntoConstraints = false
-        body.addSubview(leftHost)
-
-        let rightHost = NSView()
-        rightHost.translatesAutoresizingMaskIntoConstraints = false
-        body.addSubview(rightHost)
-
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = Palette.borderSubtle.cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        body.addSubview(divider)
-
         for v in [header, listView, detailView, footer] {
             v.translatesAutoresizingMaskIntoConstraints = false
         }
         root.addSubview(header)
-        leftHost.addSubview(listView)
-        rightHost.addSubview(detailView)
+        body.addSubview(listView)
+        body.addSubview(detailView)
         root.addSubview(footer)
 
-        let leftWidth = leftHost.widthAnchor.constraint(
-            equalTo: rightHost.widthAnchor, multiplier: 1.15
-        )
+        // Detail is hidden by default; Tab / → / o swaps to it as a full view.
+        detailView.isHidden = true
 
         NSLayoutConstraint.activate([
-            // Blur fills the whole panel.
             blur.topAnchor.constraint(equalTo: root.topAnchor),
             blur.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             blur.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             blur.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
-            // Header at top.
             header.topAnchor.constraint(equalTo: root.topAnchor),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             header.heightAnchor.constraint(equalToConstant: 52),
 
-            // Body fills the middle.
             body.topAnchor.constraint(equalTo: header.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             body.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             body.bottomAnchor.constraint(equalTo: footer.topAnchor),
 
-            // Left | divider | right inside body.
-            leftHost.topAnchor.constraint(equalTo: body.topAnchor),
-            leftHost.bottomAnchor.constraint(equalTo: body.bottomAnchor),
-            leftHost.leadingAnchor.constraint(equalTo: body.leadingAnchor),
-            leftHost.trailingAnchor.constraint(equalTo: divider.leadingAnchor),
-            leftWidth,
+            // List and detail both fill the body; visibility toggles via isHidden.
+            listView.topAnchor.constraint(equalTo: body.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: body.trailingAnchor),
+            listView.bottomAnchor.constraint(equalTo: body.bottomAnchor),
 
-            divider.topAnchor.constraint(equalTo: body.topAnchor),
-            divider.bottomAnchor.constraint(equalTo: body.bottomAnchor),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-
-            rightHost.topAnchor.constraint(equalTo: body.topAnchor),
-            rightHost.bottomAnchor.constraint(equalTo: body.bottomAnchor),
-            rightHost.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
-            rightHost.trailingAnchor.constraint(equalTo: body.trailingAnchor),
-
-            listView.topAnchor.constraint(equalTo: leftHost.topAnchor),
-            listView.leadingAnchor.constraint(equalTo: leftHost.leadingAnchor),
-            listView.trailingAnchor.constraint(equalTo: leftHost.trailingAnchor),
-            listView.bottomAnchor.constraint(equalTo: leftHost.bottomAnchor),
-
-            detailView.topAnchor.constraint(equalTo: rightHost.topAnchor),
-            detailView.leadingAnchor.constraint(equalTo: rightHost.leadingAnchor),
-            detailView.trailingAnchor.constraint(equalTo: rightHost.trailingAnchor),
-            detailView.bottomAnchor.constraint(equalTo: rightHost.bottomAnchor),
+            detailView.topAnchor.constraint(equalTo: body.topAnchor),
+            detailView.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            detailView.trailingAnchor.constraint(equalTo: body.trailingAnchor),
+            detailView.bottomAnchor.constraint(equalTo: body.bottomAnchor),
 
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -244,6 +211,9 @@ final class SwitcherController: NSWindowController {
         }()
         detailView.session = focused
         detailView.isFocused = isDetailFocused
+        // Body swaps between list and detail full-view based on focus.
+        listView.isHidden = isDetailFocused
+        detailView.isHidden = !isDetailFocused
         header.totalCount = sessions.count
         header.attentionCount = sessions.filter { $0.needsAttention }.count
         header.queryDisplay = query
@@ -342,6 +312,12 @@ extension SwitcherController: SwitcherKeyHandling {
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "w" {
             close()
+            return true
+        }
+        // Tab toggles detail full-view from any mode (insert / normal / detail).
+        if event.keyCode == KeyMap.Key.tab {
+            isDetailFocused.toggle()
+            refreshUI()
             return true
         }
         if isDetailFocused {

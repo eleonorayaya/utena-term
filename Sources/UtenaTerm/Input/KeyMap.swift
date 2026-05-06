@@ -20,6 +20,7 @@ enum KeyMap {
         static let leftBracket: UInt16  = 0x21
         static let rightBracket: UInt16 = 0x1E
         static let slash: UInt16        = 0x2C
+        static let tab: UInt16          = 0x30
         static let returnKey: UInt16    = 0x24
         static let escape: UInt16       = 0x35
         static let backspace: UInt16    = 0x33

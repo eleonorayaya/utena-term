@@ -29,6 +29,7 @@ final class SwitcherFooter: NSView {
                 .k(["d", "d"], desc: "delete"),
                 .k(["r"], desc: "repair"),
                 .k(["a"], desc: "archive"),
+                .k(["⇥"], desc: "back"),
             ])
             x = drawGroup(label: "NAVIGATE", at: x, items: [
                 .k(["↑", "↓"], desc: "rows", joinChar: ""),
@@ -42,7 +43,7 @@ final class SwitcherFooter: NSView {
             x = drawGroup(label: "ACTION", at: x, items: [
                 .k(["↵"], desc: "attach"),
                 .k(["c"], desc: "new"),
-                .k(["→"], desc: "detail"),
+                .k(["⇥"], desc: "detail"),
             ])
             x = drawGroup(label: "MODE", at: x, items: [
                 .k(["i", "/"], desc: "search"),

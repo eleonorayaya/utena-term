@@ -5,17 +5,11 @@ import AppKit
 final class SwitcherDetailView: NSView {
 
     var session: Session? { didSet { needsDisplay = true } }
-    var isFocused: Bool = false { didSet { if isFocused != oldValue { needsDisplay = true } } }
+    /// Kept for SwitcherController API compatibility. The detail view now
+    /// fills the body when active; visibility (not a border) signals focus.
+    var isFocused: Bool = false
 
     override func draw(_ dirtyRect: NSRect) {
-        // Draw detail focus border if focused
-        if isFocused {
-            Palette.brand.withAlphaComponent(0.5).setStroke()
-            let borderPath = NSBezierPath(rect: bounds)
-            borderPath.lineWidth = 1
-            borderPath.stroke()
-        }
-
         guard let s = session else {
             drawEmpty()
             return
