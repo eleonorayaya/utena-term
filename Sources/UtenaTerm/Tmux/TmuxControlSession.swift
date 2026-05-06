@@ -145,6 +145,10 @@ final class TmuxControlSession {
         rawWrite("switch-client -t \(name)\n")
     }
 
+    func newWindow() {
+        rawWrite("new-window\n")
+    }
+
     func listSessions() async throws -> String {
         try await send("list-sessions -F '#{session_id} #{session_name}'")
     }

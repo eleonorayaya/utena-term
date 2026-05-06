@@ -36,7 +36,12 @@ final class TmuxWindowController: NSWindowController {
         win.titlebarAppearsTransparent = true
         win.isMovableByWindowBackground = true
         win.backgroundColor = Palette.surfaceBackground
-        let chrome = SessionChrome(contentView: tv, topInset: 28)
+        // Full-bleed: hide the standard window buttons. Close still works
+        // via ⌘W / killing all panes; minimize via ⌘M; quit via ⌘Q.
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            win.standardWindowButton(kind)?.isHidden = true
+        }
+        let chrome = SessionChrome(contentView: tv)
         win.contentView = chrome
         win.center()
 
@@ -349,6 +354,10 @@ extension TmuxWindowController: TerminalWindowDelegate {
     func terminalWindowToggleSwitcher() {
         if switcher.isOpen { switcher.close() }
         else { switcher.open(near: window) }
+    }
+
+    func terminalWindowNewWindow() {
+        controlSession.newWindow()
     }
 }
 

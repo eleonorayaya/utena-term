@@ -29,6 +29,9 @@ final class TerminalWindowController: NSWindowController {
         win.makeFirstResponder(initialPane.view)
         win.center()
         win.backgroundColor = Palette.surfaceBackground
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            win.standardWindowButton(kind)?.isHidden = true
+        }
 
         self.init(window: win)
 
@@ -70,4 +73,5 @@ extension TerminalWindowController: TerminalWindowDelegate {
     func terminalWindowFocusPrev()       { splitManager.focusPrev() }
     func terminalWindowClosePane()       { splitManager.closePane(splitManager.focusedPane) }
     func terminalWindowToggleSwitcher()  { /* Switcher is tmux-only — no-op for plain terminal windows. */ }
+    func terminalWindowNewWindow()       { /* tmux-only — plain terminal windows have no concept of "windows". */ }
 }
