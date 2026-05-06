@@ -21,6 +21,7 @@ final class NewSessionPanelController: NSWindowController {
     }
 
     private var currentStep: Step = .pickWorkspace
+    private var isInsertMode: Bool = true   // search-as-you-type by default; Esc on empty query → normal
     private var query: String = ""
     private var allWorkspaces: [Workspace] = []
     private var workspaces: [Workspace] = []  // filtered by query
@@ -55,6 +56,7 @@ final class NewSessionPanelController: NSWindowController {
 
     func open(near anchorWindow: NSWindow?) {
         currentStep = .pickWorkspace
+        isInsertMode = true
         query = ""
         allWorkspaces = []
         workspaces = []
@@ -241,8 +243,10 @@ final class NewSessionPanelController: NSWindowController {
     private func transitionToBranchStep(workspace: Workspace) {
         currentStep = .pickBranch(workspace: workspace)
         query = ""
+        isInsertMode = true
         header.currentStep = .branch
         header.query = ""
+        header.modeIndicator = .insert
         footer.currentStep = .branch
         footer.isLoading = true
         footer.errorMessage = nil
@@ -270,6 +274,7 @@ final class NewSessionPanelController: NSWindowController {
         currentStep = .enterName(workspace: workspace, branch: branch)
         newBranchName = nil
         header.currentStep = .name
+        header.modeIndicator = .hidden
         footer.currentStep = .name
         footer.isLoading = false
         footer.errorMessage = nil
@@ -312,8 +317,10 @@ final class NewSessionPanelController: NSWindowController {
         case .pickBranch:
             currentStep = .pickWorkspace
             query = ""
+            isInsertMode = true
             header.currentStep = .workspace
             header.query = ""
+            header.modeIndicator = .insert
             footer.currentStep = .workspace
             footer.isLoading = false
             footer.errorMessage = nil
@@ -324,8 +331,10 @@ final class NewSessionPanelController: NSWindowController {
             guard case .enterName(let workspace, _) = currentStep else { return }
             currentStep = .pickBranch(workspace: workspace)
             query = ""
+            isInsertMode = true
             header.currentStep = .branch
             header.query = ""
+            header.modeIndicator = .insert
             footer.currentStep = .branch
             footer.isLoading = false
             footer.errorMessage = nil
@@ -399,66 +408,111 @@ extension NewSessionPanelController: NewSessionKeyHandling {
             return true
         }
 
-        switch event.keyCode {
-        case KeyMap.Key.escape:
-            if isListStep && !query.isEmpty {
-                // Clear query if non-empty
-                query = ""
-                header.query = ""
-                if case .pickWorkspace = currentStep {
-                    updateWorkspaceList()
-                } else if case .pickBranch = currentStep {
-                    updateBranchList()
-                }
-                return true
-            }
-            // Otherwise go back one step
+        // The .enterName step has the text field focused — let it own keys.
+        if !isListStep { return handleEnterNameKey(event) }
+        if isInsertMode { return handleListInsertKey(event) }
+        return handleListNormalKey(event)
+    }
+
+    private func handleEnterNameKey(_ event: NSEvent) -> Bool {
+        // Only ⎋ is intercepted — go back to the branch step.
+        if event.keyCode == KeyMap.Key.escape {
             goBackOneStep()
             return true
+        }
+        return false
+    }
 
+    private func handleListInsertKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case KeyMap.Key.escape:
+            // Non-empty query → clear it. Empty query → exit to normal mode
+            // (rather than going back, so users can use j/k from there).
+            if !query.isEmpty {
+                query = ""
+                header.query = ""
+                refilter()
+            } else {
+                isInsertMode = false
+                header.modeIndicator = .normal
+            }
+            return true
         case KeyMap.Key.returnKey:
             handleListActivation()
             return true
-
         case KeyMap.Key.arrowUp:
             listView.move(by: -1)
             return true
-
         case KeyMap.Key.arrowDown:
             listView.move(by: +1)
             return true
-
         case KeyMap.Key.backspace:
-            if isListStep && !query.isEmpty {
+            if !query.isEmpty {
                 query.removeLast()
                 header.query = query
-                if case .pickWorkspace = currentStep {
-                    updateWorkspaceList()
-                } else if case .pickBranch = currentStep {
-                    updateBranchList()
-                }
+                refilter()
+                return true
+            }
+            return true   // eat empty-backspace so it doesn't fall through
+        default:
+            // Alphanumerics + - / _ feed the query
+            let chars = event.charactersIgnoringModifiers ?? ""
+            if chars.count == 1, let scalar = chars.unicodeScalars.first,
+               (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_" || scalar == "/"),
+               !event.modifierFlags.contains(.command) {
+                query += chars
+                header.query = query
+                refilter()
                 return true
             }
             return false
+        }
+    }
 
+    private func handleListNormalKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case KeyMap.Key.escape:
+            goBackOneStep()
+            return true
+        case KeyMap.Key.returnKey:
+            handleListActivation()
+            return true
+        case KeyMap.Key.arrowUp:
+            listView.move(by: -1)
+            return true
+        case KeyMap.Key.arrowDown:
+            listView.move(by: +1)
+            return true
         default:
-            // Handle alphanumeric characters as query input in list steps
-            if isListStep {
-                let chars = event.charactersIgnoringModifiers ?? ""
-                if chars.count == 1, let scalar = chars.unicodeScalars.first,
-                   (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_"),
-                   !event.modifierFlags.contains(.command) {
-                    query += chars
-                    header.query = query
-                    if case .pickWorkspace = currentStep {
-                        updateWorkspaceList()
-                    } else if case .pickBranch = currentStep {
-                        updateBranchList()
-                    }
-                    return true
+            let chars = event.charactersIgnoringModifiers ?? ""
+            switch chars {
+            case "j":
+                listView.move(by: +1)
+                return true
+            case "k":
+                listView.move(by: -1)
+                return true
+            case "i", "/":
+                isInsertMode = true
+                header.modeIndicator = .insert
+                if chars == "/" {
+                    // `/` is a fresh search; clear any leftover query.
+                    query = ""
+                    header.query = ""
+                    refilter()
                 }
+                return true
+            default:
+                return true   // eat unknown keys in normal mode
             }
-            return false
+        }
+    }
+
+    private func refilter() {
+        if case .pickWorkspace = currentStep {
+            updateWorkspaceList()
+        } else if case .pickBranch = currentStep {
+            updateBranchList()
         }
     }
 }

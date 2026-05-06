@@ -10,8 +10,11 @@ final class NewSessionHeader: NSView {
         case name = 2
     }
 
+    enum ModeIndicator { case insert, normal, hidden }
+
     var currentStep: Step = .workspace { didSet { if currentStep != oldValue { needsDisplay = true } } }
     var query: String = "" { didSet { if query != oldValue { needsDisplay = true } } }
+    var modeIndicator: ModeIndicator = .insert { didSet { if modeIndicator != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         // Bottom hairline
@@ -61,12 +64,32 @@ final class NewSessionHeader: NSView {
             x += stepSize.width
         }
 
-        // Right side: query indicator (if non-empty)
-        if !query.isEmpty {
-            let rPad: CGFloat = 18
-            var xR = bounds.width - rPad
+        // Right side: mode pill + query indicator
+        let rPad: CGFloat = 18
+        var xR = bounds.width - rPad
 
-            // Query text with magnifying glass glyph
+        // Mode pill (only on the list steps; `enterName` hides it)
+        if modeIndicator != .hidden {
+            let label = (modeIndicator == .insert) ? "/" : "n"
+            let bg: NSColor = (modeIndicator == .insert) ? Palette.brand : Palette.surfaceTertiary
+            let fg: NSColor = (modeIndicator == .insert) ? Palette.surfaceDeep : Palette.textPrimary
+            let pillStr = NSAttributedString(string: label, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: fg,
+            ])
+            let labelSize = pillStr.size()
+            let pillW: CGFloat = max(18, labelSize.width + 10)
+            let pillH: CGFloat = 16
+            let pillRect = NSRect(x: xR - pillW, y: yMid - pillH / 2, width: pillW, height: pillH)
+            bg.setFill()
+            NSBezierPath(roundedRect: pillRect, xRadius: 3, yRadius: 3).fill()
+            pillStr.draw(at: NSPoint(x: pillRect.midX - labelSize.width / 2,
+                                     y: pillRect.midY - labelSize.height / 2))
+            xR -= pillW + 8
+        }
+
+        // Query text with magnifying glass glyph
+        if !query.isEmpty {
             let queryStr = NSAttributedString(string: query, attributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
                 .foregroundColor: Palette.textTertiary,
