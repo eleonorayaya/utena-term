@@ -31,6 +31,7 @@ final class SwitcherController: NSWindowController {
     private var query: String = ""
     private var sessionsObserver: NSObjectProtocol?
     private var deleteGuard = DoublePressGuard<UInt>()
+    private var isInsertMode = true  // Vim-style: insert (search) vs normal (command) mode
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -64,6 +65,13 @@ final class SwitcherController: NSWindowController {
     // MARK: - Open / close
 
     func open(near anchorWindow: NSWindow?) {
+        // Reset to insert mode on each open
+        isInsertMode = true
+        query = ""
+        selectedIndex = 0
+        deleteGuard.clear()
+        listView.confirmKillFor = nil
+
         // Pre-populate from cached sessions so the panel renders instantly,
         // even on the first open before any notification has fired.
         Task { @MainActor in
@@ -232,6 +240,8 @@ final class SwitcherController: NSWindowController {
         header.totalCount = sessions.count
         header.attentionCount = sessions.filter { $0.needsAttention }.count
         header.queryDisplay = query
+        header.isInsertMode = isInsertMode
+        footer.isInsertMode = isInsertMode
     }
 
     /// Called when daemon publishes new session data; find and update the
@@ -319,35 +329,99 @@ final class SwitcherController: NSWindowController {
 
 extension SwitcherController: SwitcherKeyHandling {
     func switcherKeyDown(_ event: NSEvent) -> Bool {
+        if isInsertMode {
+            return handleInsertKey(event)
+        } else {
+            return handleNormalKey(event)
+        }
+    }
+
+    private func handleInsertKey(_ event: NSEvent) -> Bool {
         switch event.keyCode {
-        case KeyMap.Key.returnKey: attachSelected(); return true
-        case KeyMap.Key.escape:    clearQuery(); return true   // clears query, then dismisses
-        case KeyMap.Key.arrowDown: move(by: +1); return true
-        case KeyMap.Key.arrowUp:   move(by: -1); return true
-        case KeyMap.Key.backspace: backspaceQuery(); return true
-        default: break
+        case KeyMap.Key.escape:
+            if !query.isEmpty {
+                clearQuery()
+            } else {
+                isInsertMode = false
+                refreshUI()
+            }
+            return true
+        case KeyMap.Key.returnKey:
+            attachSelected()
+            return true
+        case KeyMap.Key.arrowUp:
+            move(by: -1)
+            return true
+        case KeyMap.Key.arrowDown:
+            move(by: +1)
+            return true
+        case KeyMap.Key.backspace:
+            backspaceQuery()
+            return true
+        default:
+            break
         }
+
+        // Allow all alphanumerics and -_/. into the query in insert mode
         let chars = event.charactersIgnoringModifiers ?? ""
-        switch chars {
-        case "j": move(by: +1); return true
-        case "k": move(by: -1); return true
-        case "c": createSession(); return true
-        case "d": deleteSelected(); return true
-        case "r": repairSelected(); return true
-        case "a": archiveSelected(); return true
-        default: break
-        }
-        // Other printable single-character keys feed the search query so
-        // the user can filter by typing, mirroring tmux/fzf-style pickers.
-        // But skip a, c, d, r which are reserved for actions.
-        let reserved = Set(["a", "c", "d", "r"])
         if chars.count == 1, let scalar = chars.unicodeScalars.first,
-           !reserved.contains(chars),
            (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_" || scalar == "/") {
             appendQuery(chars)
             return true
         }
         return false
+    }
+
+    private func handleNormalKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case KeyMap.Key.escape:
+            close()
+            return true
+        case KeyMap.Key.returnKey:
+            attachSelected()
+            return true
+        case KeyMap.Key.arrowUp, KeyMap.Key.k:
+            move(by: -1)
+            return true
+        case KeyMap.Key.arrowDown, KeyMap.Key.j:
+            move(by: +1)
+            return true
+        default:
+            break
+        }
+
+        let chars = event.charactersIgnoringModifiers ?? ""
+        switch chars {
+        case "j":
+            move(by: +1)
+            return true
+        case "k":
+            move(by: -1)
+            return true
+        case "c":
+            createSession()
+            return true
+        case "d":
+            deleteSelected()
+            return true
+        case "r":
+            repairSelected()
+            return true
+        case "a":
+            archiveSelected()
+            return true
+        case "i":
+            isInsertMode = true
+            refreshUI()
+            return true
+        case "/":
+            isInsertMode = true
+            clearQuery()
+            refreshUI()
+            return true
+        default:
+            return true  // Eat all other keys in normal mode
+        }
     }
 }
 

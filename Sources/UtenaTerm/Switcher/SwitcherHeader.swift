@@ -1,10 +1,11 @@
 import AppKit
 
-/// Top header strip: branding + search field + counts + prefix hint.
+/// Top header strip: branding + search field + counts + prefix hint + mode indicator.
 final class SwitcherHeader: NSView {
     var totalCount: Int = 0 { didSet { if totalCount != oldValue { needsDisplay = true } } }
     var attentionCount: Int = 0 { didSet { if attentionCount != oldValue { needsDisplay = true } } }
     var queryDisplay: String = "" { didSet { if queryDisplay != oldValue { needsDisplay = true } } }
+    var isInsertMode: Bool = true { didSet { if isInsertMode != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         // Bottom hairline
@@ -54,7 +55,7 @@ final class SwitcherHeader: NSView {
         Palette.brand.withAlphaComponent(0.85).setFill()
         NSRect(x: x, y: yMid - 7, width: 7, height: 15).fill()
 
-        // Right: counts and prefix hint
+        // Right: mode indicator, counts, and prefix hint
         drawRight(midY: yMid)
     }
 
@@ -84,6 +85,12 @@ final class SwitcherHeader: NSView {
     private func drawRight(midY: CGFloat) {
         let hPad: CGFloat = 18
         var x = bounds.width - hPad
+
+        // Mode indicator pill (top-right)
+        let modeText = isInsertMode ? "/" : "n"
+        let modeBackground = isInsertMode ? Palette.brand : Palette.surfaceTertiary
+        x = KbdGlyph.drawTrailing(modeText, rightAnchor: x, midY: midY, style: .spacious, background: modeBackground)
+        x -= 12
 
         // total
         let totalNum = NSAttributedString(string: "\(totalCount)", attributes: [

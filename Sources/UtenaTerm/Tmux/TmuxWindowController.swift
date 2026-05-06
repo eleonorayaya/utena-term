@@ -572,9 +572,11 @@ extension TmuxWindowController: SwitcherDelegate {
     }
 
     func switcherCreateSession() {
-        // Open a new tmux window with the session picker flow
+        // Close switcher first so its panel doesn't steal focus from the new picker.
+        // Then dispatch on next runloop tick to ensure cleanup before new window appears.
+        switcher.close()
         if let app = NSApp.delegate as? AppDelegate {
-            app.openTmuxWindow(nil)
+            DispatchQueue.main.async { app.openTmuxWindow(nil) }
         }
     }
 

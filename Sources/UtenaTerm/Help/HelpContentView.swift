@@ -35,12 +35,20 @@ final class HelpContentView: NSView {
             Entry(chord: "⌃b ?", action: "this help"),
             Entry(chord: "⌘⇧N", action: "new tmux window"),
         ]),
-        Section(title: "IN SWITCHER", items: [
+        Section(title: "IN SWITCHER (insert mode — default)", items: [
+            Entry(chord: "type", action: "search / filter"),
             Entry(chord: "↩", action: "attach"),
+            Entry(chord: "⎋", action: "clear query / exit to normal"),
+            Entry(chord: "↑↓", action: "navigate"),
+        ]),
+        Section(title: "IN SWITCHER (normal mode)", items: [
+            Entry(chord: "j / k", action: "navigate"),
             Entry(chord: "c", action: "new session"),
             Entry(chord: "d d", action: "delete (twice)"),
             Entry(chord: "r", action: "repair"),
             Entry(chord: "a", action: "archive"),
+            Entry(chord: "i / /", action: "enter search mode"),
+            Entry(chord: "↩", action: "attach"),
             Entry(chord: "⎋", action: "close"),
         ]),
     ]

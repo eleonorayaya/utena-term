@@ -2,6 +2,7 @@ import AppKit
 
 /// Bottom keybinds row, grouped by scope (move | session | window | help).
 final class SwitcherFooter: NSView {
+    var isInsertMode: Bool = true { didSet { if isInsertMode != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         Palette.surfaceDeep.withAlphaComponent(0.6).setFill()
@@ -12,23 +13,39 @@ final class SwitcherFooter: NSView {
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
 
         var x: CGFloat = 0
-        x = drawGroup(label: "MOVE", at: x, items: [
-            .k(["j", "k"], desc: "row"),
-        ])
-        x = drawGroup(label: "SESSION", at: x, items: [
-            .k(["↵"], desc: "attach"),
-            .k(["c"], desc: "new"),
-            .k(["d", "d"], desc: "delete"),
-            .k(["r"], desc: "repair"),
-            .k(["a"], desc: "archive"),
-        ])
+
+        if isInsertMode {
+            // Insert mode footer
+            x = drawGroup(label: "SEARCH", at: x, items: [
+                .k(["↵"], desc: "attach"),
+                .k(["⎋"], desc: "normal"),
+                .k(["↑", "↓"], desc: "navigate", joinChar: ""),
+            ])
+        } else {
+            // Normal mode footer
+            x = drawGroup(label: "MOVE", at: x, items: [
+                .k(["j", "k"], desc: "row"),
+            ])
+            x = drawGroup(label: "SESSION", at: x, items: [
+                .k(["↵"], desc: "attach"),
+                .k(["c"], desc: "new"),
+                .k(["d", "d"], desc: "delete"),
+                .k(["r"], desc: "repair"),
+                .k(["a"], desc: "archive"),
+            ])
+            x = drawGroup(label: "MODE", at: x, items: [
+                .k(["i", "/"], desc: "search"),
+            ])
+        }
+
         x = drawGroup(label: "WINDOW", at: x, items: [
             .k(["1", "9"], desc: "jump", joinChar: "–"),
         ])
+
         // Right-anchored: esc
         let hPad: CGFloat = 14
         var xR = bounds.width - hPad
-        xR = drawKbd("esc", rightAnchor: xR)
+        xR = drawKbd(isInsertMode ? "esc" : "esc", rightAnchor: xR)
     }
 
     private enum Item {
