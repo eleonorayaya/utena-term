@@ -34,7 +34,7 @@ struct ControlLineParser {
         case "%output":
             guard let paneID = scanner.word() else { return .unknown(line) }
             let encoded = scanner.remainder()
-            return .output(paneID: paneID, data: unescapeOctal(encoded))
+            return .output(paneID: paneID, data: Self.unescapeOctal(Data(encoded.utf8)))
 
         case "%layout-change":
             guard let windowID = scanner.word(),
@@ -76,8 +76,13 @@ struct ControlLineParser {
         }
     }
 
-    private func unescapeOctal(_ s: String) -> Data {
-        let bytes = Array(s.utf8)
+    /// Reverses tmux's `vis_data_buf` escaping in `%output` payloads:
+    /// `\\` → byte 0x5C, `\NNN` (3-digit octal) → that byte. Everything else
+    /// passes through verbatim. Operates on `Data` so binary pane content
+    /// (UTF-8 multibyte, escape sequences) survives untouched — the previous
+    /// String-based version forced a lossy round-trip via Latin-1 fallback.
+    static func unescapeOctal(_ data: Data) -> Data {
+        let bytes = Array(data)
         var result: [UInt8] = []
         result.reserveCapacity(bytes.count)
         var i = 0
@@ -110,7 +115,7 @@ struct ControlLineParser {
         return Data(result)
     }
 
-    private func octalValue(_ b: UInt8) -> UInt8? {
+    private static func octalValue(_ b: UInt8) -> UInt8? {
         guard b >= UInt8(ascii: "0"), b <= UInt8(ascii: "7") else { return nil }
         return b - UInt8(ascii: "0")
     }

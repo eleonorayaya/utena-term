@@ -142,24 +142,24 @@ final class TmuxControlSession {
     // Fire-and-forget: sends bytes to a pane.
     //
     // Bytes split into runs:
-    //   - Control bytes (< 0x20 or == 0x7F): octal-escaped, sent WITHOUT -l so
-    //     tmux interprets them as key codes (e.g. \003 → ⌃c reaches the shell).
+    //   - Control bytes (< 0x20 or == 0x7F): sent via `send-keys -H <hex>` so
+    //     tmux delivers them as raw bytes to the pane pty (e.g. ⌃c → 0x03,
+    //     ⌃o → 0x0F, ESC → 0x1B). This is the only reliable path: octal
+    //     escapes inside double-quoted args (e.g. "\017") are silently dropped
+    //     by tmux's control-mode command parser, and `-l` doesn't honor them
+    //     either — both paths leave control chords undelivered.
     //   - Printable + UTF-8 high bytes: quoted, sent WITH -l as literal text.
-    //
-    // The previous all-with-`-l` path was broken for control bytes — `-l` makes
-    // tmux take the value as literal characters, so `\003` arrived at the inner
-    // shell as the four-character string `\003` instead of byte 0x03.
     func sendKeys(pane paneID: String, data: Data) {
         let bytes = Array(data)
         var i = 0
         while i < bytes.count {
             if Self.isControlByte(bytes[i]) {
-                var run = ""
+                var hexArgs = ""
                 while i < bytes.count, Self.isControlByte(bytes[i]) {
-                    run += String(format: "\\%03o", bytes[i])
+                    hexArgs += String(format: " %02x", bytes[i])
                     i += 1
                 }
-                rawWrite("send-keys -t \(paneID) \"\(run)\"\n")
+                rawWrite("send-keys -t \(paneID) -H\(hexArgs)\n")
             } else {
                 var run: [UInt8] = []
                 while i < bytes.count, !Self.isControlByte(bytes[i]) {
@@ -230,6 +230,11 @@ final class TmuxControlSession {
 
     private func rawWrite(_ s: String) {
         let fd = masterFd
+        // TEMP DEBUG: dump every command we send to tmux so we can verify the
+        // send-keys path is actually emitting `-H 0f` for ⌃o etc.
+        if ProcessInfo.processInfo.environment["UTENA_TMUX_LOG"] != nil {
+            FileHandle.standardError.write(Data("[tmux→] \(s)".utf8))
+        }
         writeQueue.async {
             guard fd >= 0 else { return }
             var bytes = Array(s.utf8)
@@ -248,11 +253,9 @@ final class TmuxControlSession {
             while let nlIdx = lineBuffer.firstIndex(of: 0x0A) {
                 let lineBytes = lineBuffer[lineBuffer.startIndex..<nlIdx]
                 let trimmed = lineBytes.last == 0x0D ? lineBytes.dropLast() : lineBytes
+                let lineCopy = Data(trimmed)
                 lineBuffer.removeSubrange(lineBuffer.startIndex...nlIdx)
-                let lineStr = String(bytes: trimmed, encoding: .utf8)
-                    ?? String(bytes: trimmed, encoding: .isoLatin1)
-                    ?? ""
-                handleLine(lineStr)
+                handleLine(lineCopy)
             }
         }
         failAllPending()
@@ -262,21 +265,50 @@ final class TmuxControlSession {
         }
     }
 
-    private func handleLine(_ rawLine: String) {
+    private static let outputPrefix: [UInt8] = Array("%output ".utf8)
+
+    private func handleLine(_ rawLine: Data) {
         // tmux prepends a DCS intro (\033P<params><final-byte>) to the first control-mode
-        // line.  Strip it before parsing so "%begin" etc. are found correctly.
-        let line: String
-        if rawLine.hasPrefix("\u{1B}P") {
-            // Find the DCS final byte (first char in 0x40–0x7E after the ESC P).
-            let afterP = rawLine.index(rawLine.startIndex, offsetBy: 2)
-            if let finalIdx = rawLine[afterP...].firstIndex(where: { $0.asciiValue.map { $0 >= 0x40 && $0 <= 0x7E } ?? false }) {
-                line = String(rawLine[rawLine.index(after: finalIdx)...])
-            } else {
-                line = rawLine
+        // line. Strip it before parsing at the byte level so binary %output payloads
+        // (UTF-8 multibyte, escape sequences) survive untouched.
+        var bytes = rawLine
+        if bytes.count >= 2,
+           bytes[bytes.startIndex] == 0x1B,
+           bytes[bytes.startIndex + 1] == 0x50 {
+            var i = bytes.startIndex + 2
+            while i < bytes.endIndex, !(bytes[i] >= 0x40 && bytes[i] <= 0x7E) {
+                i += 1
             }
-        } else {
-            line = rawLine
+            if i < bytes.endIndex {
+                bytes = bytes[(i + 1)...]
+            }
         }
+        if bytes.isEmpty { return }
+
+        // Fast path for %output: bypass the String round-trip. Decoding raw pane
+        // bytes as a Swift String with an ISO-Latin1 fallback (the obvious naïve
+        // path) silently expands every UTF-8 high byte the moment ANY byte in the
+        // line fails UTF-8 validation, producing the â/Â garbled-char bug. Stay in
+        // bytes until we hand off to the VT parser.
+        if bytes.count >= Self.outputPrefix.count,
+           bytes.prefix(Self.outputPrefix.count).elementsEqual(Self.outputPrefix) {
+            let after = bytes.index(bytes.startIndex, offsetBy: Self.outputPrefix.count)
+            guard let spaceIdx = bytes[after...].firstIndex(of: 0x20),
+                  let paneID = String(bytes: bytes[after..<spaceIdx], encoding: .ascii)
+            else { return }
+            let payload = bytes[(spaceIdx + 1)...]
+            let data = ControlLineParser.unescapeOctal(Data(payload))
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.session(self, didReceiveOutput: data, forPane: paneID)
+            }
+            return
+        }
+
+        // Other events carry only ASCII / simple UTF-8 names — round-trip is safe.
+        let line = String(bytes: bytes, encoding: .utf8)
+            ?? String(bytes: bytes, encoding: .isoLatin1)
+            ?? ""
         if line.isEmpty { return }
         let event = parser.parse(line)
         switch event {
