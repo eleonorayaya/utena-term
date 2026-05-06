@@ -301,9 +301,15 @@ final class TmuxWindowController: NSWindowController {
 
     private func sendRefreshClient() {
         guard let pane = focusedPane ?? panes.values.first else { return }
+        // The pane reserves padX/padY around the cell grid; subtract it so
+        // tmux's reported window size matches what's actually visible. Without
+        // this we over-report by ~2 cols and apps inside think the terminal
+        // is wider than the rendered grid → text wraps a row early.
         let rect = tabView.contentRect
-        let cols = max(1, Int(rect.width / pane.view.cellWidth))
-        let rows = max(1, Int(rect.height / pane.view.cellHeight))
+        let usableW = max(0, rect.width - 2 * pane.view.padX)
+        let usableH = max(0, rect.height - 2 * pane.view.padY)
+        let cols = max(1, Int(usableW / pane.view.cellWidth))
+        let rows = max(1, Int(usableH / pane.view.cellHeight))
         guard cols != lastRefreshedSize.cols || rows != lastRefreshedSize.rows else { return }
         lastRefreshedSize = (cols, rows)
         controlSession.refreshClient(cols: cols, rows: rows)
