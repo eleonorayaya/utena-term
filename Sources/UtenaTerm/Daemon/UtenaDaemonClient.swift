@@ -60,6 +60,20 @@ struct BranchListResponse: Decodable {
     }
 }
 
+// MARK: - Create-session input
+
+/// All parameters needed to create a new session. Single source of truth for
+/// the picker → launcher/tmux → daemon-client chain (otherwise this 5-tuple
+/// shows up in three Outcome.create / TmuxLaunch.create / createSession
+/// signatures).
+struct CreateSessionInput: Equatable {
+    let name: String
+    let workspaceId: UInt
+    let branch: String?
+    let baseBranch: String?
+    let createWorktree: Bool
+}
+
 // MARK: - Client
 
 actor UtenaDaemonClient {
@@ -154,13 +168,12 @@ actor UtenaDaemonClient {
         try await get("workspaces/\(workspaceId)/branches", as: BranchListResponse.self)
     }
 
-    func createSession(name: String, workspaceId: UInt, branch: String? = nil, baseBranch: String? = nil, createWorktree: Bool = false) async throws -> Session {
+    func createSession(_ input: CreateSessionInput) async throws -> Session {
         let url = baseURL.appendingPathComponent("sessions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let request = CreateSessionRequest(name: name, workspaceId: workspaceId, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree)
-        req.httpBody = try Self.encoder.encode(request)
+        req.httpBody = try Self.encoder.encode(CreateSessionRequest(input: input))
         let (data, _) = try await URLSession.shared.data(for: req)
         var created = try Self.decoder.decode(Session.self, from: data)
         for _ in 0 ..< 20 {
@@ -277,11 +290,7 @@ private struct AnyKey: CodingKey {
 }
 
 private struct CreateSessionRequest: Encodable {
-    let name: String
-    let workspaceId: UInt
-    let branch: String?
-    let baseBranch: String?
-    let createWorktree: Bool
+    let input: CreateSessionInput
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -293,14 +302,10 @@ private struct CreateSessionRequest: Encodable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(name, forKey: .name)
-        try container.encode(workspaceId, forKey: .workspaceId)
-        if let branch {
-            try container.encode(branch, forKey: .branch)
-        }
-        if let baseBranch {
-            try container.encode(baseBranch, forKey: .baseBranch)
-        }
-        try container.encode(createWorktree, forKey: .createWorktree)
+        try container.encode(input.name, forKey: .name)
+        try container.encode(input.workspaceId, forKey: .workspaceId)
+        try container.encodeIfPresent(input.branch, forKey: .branch)
+        try container.encodeIfPresent(input.baseBranch, forKey: .baseBranch)
+        try container.encode(input.createWorktree, forKey: .createWorktree)
     }
 }

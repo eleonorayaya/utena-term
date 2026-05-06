@@ -7,7 +7,7 @@ final class NewSessionPanelController: NSWindowController {
     enum Outcome {
         case cancel
         case attach(Session)
-        case create(name: String, workspaceId: UInt, branch: String?, baseBranch: String?, createWorktree: Bool)
+        case create(CreateSessionInput)
     }
 
     var onComplete: ((Outcome) -> Void)?
@@ -87,23 +87,19 @@ final class NewSessionPanelController: NSWindowController {
             panel.makeFirstResponder(panel)
         }
 
-        // Fetch workspaces asynchronously
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             do {
                 let ws = try await UtenaDaemonClient.shared.fetchWorkspaces()
-                self.allWorkspaces = ws.sorted { a, b in
-                    // Visible workspaces first, then hidden
+                self?.allWorkspaces = ws.sorted { a, b in
                     if a.isHidden != b.isHidden { return !a.isHidden }
                     return a.name.localizedCompare(b.name) == .orderedAscending
                 }
-                self.updateWorkspaceList()
-                self.footer.isLoading = false
-                self.footer.needsDisplay = true
+                self?.updateWorkspaceList()
+                self?.footer.isLoading = false
             } catch {
                 DebugLog.log("picker", "fetchWorkspaces failed: \(error)")
-                self.footer.errorMessage = "Failed to load workspaces"
-                self.footer.isLoading = false
-                self.footer.needsDisplay = true
+                self?.footer.errorMessage = "Failed to load workspaces"
+                self?.footer.isLoading = false
             }
         }
     }
@@ -248,46 +244,61 @@ final class NewSessionPanelController: NSWindowController {
         }
     }
 
-    private func transitionToBranchStep(workspace: Workspace) {
-        currentStep = .pickBranch(workspace: workspace)
+    /// Centralized step-transition primitive: updates the controller, the
+    /// header breadcrumb, the footer, and resets the search query / mode in
+    /// one place. Anything outside this function (list-vs-textField visibility,
+    /// async fetches) stays in the calling transition method.
+    private func setStep(_ step: Step) {
+        currentStep = step
         query = ""
-        isInsertMode = false
-        header.currentStep = .branch
         header.query = ""
-        header.modeIndicator = .normal
-        footer.currentStep = .branch
-        footer.isLoading = true
         footer.errorMessage = nil
-        footer.needsDisplay = true
+        footer.isLoading = false
+        switch step {
+        case .pickWorkspace:
+            isInsertMode = false
+            header.currentStep = .workspace
+            header.modeIndicator = .normal
+            footer.currentStep = .workspace
+        case .pickBranch:
+            isInsertMode = false
+            header.currentStep = .branch
+            header.modeIndicator = .normal
+            footer.currentStep = .branch
+        case .pickBaseBranch:
+            isInsertMode = false
+            header.currentStep = .base
+            header.modeIndicator = .normal
+            footer.currentStep = .base
+        case .enterName:
+            header.currentStep = .name
+            header.modeIndicator = .hidden
+            footer.currentStep = .name
+        }
+    }
 
-        Task { @MainActor in
+    private func transitionToBranchStep(workspace: Workspace) {
+        setStep(.pickBranch(workspace: workspace))
+        footer.isLoading = true
+
+        Task { @MainActor [weak self] in
             do {
                 let response = try await UtenaDaemonClient.shared.fetchBranches(workspaceId: workspace.id)
-                self.allBranches = response.branches
-                self.currentBranch = response.currentBranch
-                self.updateBranchList()
-                self.footer.isLoading = false
-                self.footer.needsDisplay = true
+                self?.allBranches = response.branches
+                self?.currentBranch = response.currentBranch
+                self?.updateBranchList()
+                self?.footer.isLoading = false
             } catch {
                 DebugLog.log("picker", "fetchBranches failed: \(error)")
-                self.footer.errorMessage = "Failed to load branches"
-                self.footer.isLoading = false
-                self.footer.needsDisplay = true
+                self?.footer.errorMessage = "Failed to load branches"
+                self?.footer.isLoading = false
             }
         }
     }
 
     private func transitionToNameStep(workspace: Workspace, branch: String, baseBranch: String?, createWorktree: Bool) {
-        currentStep = .enterName(workspace: workspace, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree)
+        setStep(.enterName(workspace: workspace, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree))
         newBranchName = nil
-        header.currentStep = .name
-        header.modeIndicator = .hidden
-        footer.currentStep = .name
-        footer.isLoading = false
-        footer.errorMessage = nil
-        footer.needsDisplay = true
-
-        // Hide list, show text field
         listView.isHidden = true
         textField.isHidden = false
         textField.setText("")
@@ -303,98 +314,44 @@ final class NewSessionPanelController: NSWindowController {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         textField.placeholderString = "Branch name"
         alert.accessoryView = textField
-        alert.beginSheetModal(for: window!) { response in
-            if response == .alertFirstButtonReturn {
-                let branchName = textField.stringValue.trimmingCharacters(in: .whitespaces)
-                if !branchName.isEmpty {
-                    self.newBranchName = branchName
-                    self.transitionToPickBaseBranchStep(workspace: workspace, newBranchName: branchName)
-                }
-            }
+        alert.beginSheetModal(for: window!) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let branchName = textField.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !branchName.isEmpty else { return }
+            self?.newBranchName = branchName
+            self?.transitionToPickBaseBranchStep(workspace: workspace, newBranchName: branchName)
         }
     }
 
     private func transitionToPickBaseBranchStep(workspace: Workspace, newBranchName: String) {
-        currentStep = .pickBaseBranch(workspace: workspace, newBranchName: newBranchName)
-        query = ""
-        isInsertMode = false
-        header.currentStep = .base
-        header.query = ""
-        header.modeIndicator = .normal
-        footer.currentStep = .base
-        footer.isLoading = false
-        footer.errorMessage = nil
-        footer.needsDisplay = true
-
-        // List is already populated from the previous branch step, just refresh without "+ New"
+        setStep(.pickBaseBranch(workspace: workspace, newBranchName: newBranchName))
+        // List is already populated from the previous branch step; just hide "+ New".
         updateBranchList(includeNewOption: false)
     }
 
     private func goBackOneStep() {
         switch currentStep {
         case .pickWorkspace:
-            // Cancel
             onComplete?(.cancel)
             close()
 
         case .pickBranch:
-            currentStep = .pickWorkspace
-            query = ""
-            isInsertMode = false
-            header.currentStep = .workspace
-            header.query = ""
-            header.modeIndicator = .normal
-            footer.currentStep = .workspace
-            footer.isLoading = false
-            footer.errorMessage = nil
-            footer.needsDisplay = true
+            setStep(.pickWorkspace)
             updateWorkspaceList()
 
         case .pickBaseBranch(let workspace, _):
-            currentStep = .pickBranch(workspace: workspace)
-            query = ""
-            isInsertMode = false
-            header.currentStep = .branch
-            header.query = ""
-            header.modeIndicator = .normal
-            footer.currentStep = .branch
-            footer.isLoading = false
-            footer.errorMessage = nil
-            footer.needsDisplay = true
+            setStep(.pickBranch(workspace: workspace))
             updateBranchList()
 
-        case .enterName(let workspace, _, _, _):
-            // Check if this was a new branch (has baseBranch); if so, go back to pickBaseBranch
-            guard case .enterName(_, let branch, let baseBranch, _) = currentStep else { return }
-            if baseBranch != nil {
-                // Go back to pickBaseBranch
-                currentStep = .pickBaseBranch(workspace: workspace, newBranchName: branch!)
-                query = ""
-                isInsertMode = false
-                header.currentStep = .base
-                header.query = ""
-                header.modeIndicator = .normal
-                footer.currentStep = .base
-                footer.isLoading = false
-                footer.errorMessage = nil
-                footer.needsDisplay = true
-                listView.isHidden = false
-                textField.isHidden = true
+        case .enterName(let workspace, let branch, let baseBranch, _):
+            // Came from base-branch path? Return there. Otherwise the existing-branch path.
+            listView.isHidden = false
+            textField.isHidden = true
+            if baseBranch != nil, let branch {
+                setStep(.pickBaseBranch(workspace: workspace, newBranchName: branch))
                 updateBranchList(includeNewOption: false)
             } else {
-                // Go back to pickBranch
-                currentStep = .pickBranch(workspace: workspace)
-                query = ""
-                isInsertMode = false
-                header.currentStep = .branch
-                header.query = ""
-                header.modeIndicator = .normal
-                footer.currentStep = .branch
-                footer.isLoading = false
-                footer.errorMessage = nil
-                footer.needsDisplay = true
-                listView.isHidden = false
-                textField.isHidden = true
+                setStep(.pickBranch(workspace: workspace))
                 updateBranchList()
             }
         }
@@ -410,30 +367,26 @@ final class NewSessionPanelController: NSWindowController {
 
         footer.isLoading = true
         footer.errorMessage = nil
-        footer.needsDisplay = true
 
-        Task { @MainActor in
+        let input = CreateSessionInput(
+            name: name,
+            workspaceId: workspace.id,
+            branch: branch,
+            baseBranch: baseBranch,
+            createWorktree: createWorktree
+        )
+        Task { @MainActor [weak self] in
             do {
-                _ = try await UtenaDaemonClient.shared.createSession(
-                    name: name,
-                    workspaceId: workspace.id,
-                    branch: branch,
-                    baseBranch: baseBranch,
-                    createWorktree: createWorktree
-                )
-                self.onComplete?(.create(name: name, workspaceId: workspace.id, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree))
-                self.close()
+                _ = try await UtenaDaemonClient.shared.createSession(input)
+                self?.onComplete?(.create(input))
+                self?.close()
             } catch {
                 DebugLog.log("picker", "createSession failed: \(error)")
-                self.footer.isLoading = false
-                self.footer.errorMessage = "Failed to create session"
-                self.footer.needsDisplay = true
-
+                self?.footer.isLoading = false
+                self?.footer.errorMessage = "Failed to create session"
                 // Clear the error after 3 seconds
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                    guard let self else { return }
-                    self.footer.errorMessage = nil
-                    self.footer.needsDisplay = true
+                    self?.footer.errorMessage = nil
                 }
             }
         }

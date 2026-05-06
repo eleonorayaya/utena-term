@@ -4,7 +4,7 @@ import AppKit
 
 enum TmuxLaunch {
     case attach(tmuxName: String)
-    case create(name: String, workspaceId: UInt, branch: String?, baseBranch: String?, createWorktree: Bool)
+    case create(CreateSessionInput)
 }
 
 final class TmuxWindowController: NSWindowController {
@@ -90,8 +90,8 @@ final class TmuxWindowController: NSWindowController {
         switch launch {
         case .attach(let tmuxName):
             attachTarget = tmuxName
-        case .create(let name, let workspaceId, let branch, let baseBranch, let createWorktree):
-            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree) }),
+        case .create(let input):
+            guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(input) }),
                   let tmuxName = s.tmuxSession?.name else {
                 win.close()
                 return nil
@@ -596,13 +596,14 @@ extension TmuxWindowController: SwitcherDelegate {
                 else { return }
                 app.adoptTmuxController(controller)
                 controller.showWindow(nil)
-            case .create(let name, let wsId, let branch, let baseBranch, let createWorktree):
+            case .create(let input):
                 guard let app = NSApp.delegate as? AppDelegate,
-                      let controller = TmuxWindowController(launch: .create(name: name, workspaceId: wsId, branch: branch, baseBranch: baseBranch, createWorktree: createWorktree))
+                      let controller = TmuxWindowController(launch: .create(input))
                 else { return }
                 app.adoptTmuxController(controller)
                 controller.showWindow(nil)
             }
+            self.newSessionPicker = nil   // release the picker once it's settled
         }
         self.newSessionPicker = picker
         if let win = window { picker.open(near: win) }
