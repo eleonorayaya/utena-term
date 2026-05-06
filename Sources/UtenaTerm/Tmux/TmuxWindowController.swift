@@ -1,5 +1,12 @@
 import AppKit
 
+// MARK: - TmuxLaunch
+
+enum TmuxLaunch {
+    case attach(tmuxName: String)
+    case create(name: String, workspaceId: UInt, branch: String?)
+}
+
 final class TmuxWindowController: NSWindowController {
     private(set) var isReady = false
     private let controlSession = TmuxControlSession()
@@ -28,7 +35,7 @@ final class TmuxWindowController: NSWindowController {
     private lazy var help: HelpController = HelpController()
     private lazy var pullRequests: PullRequestsController = PullRequestsController()
 
-    convenience init() {
+    convenience init?(launch: TmuxLaunch) {
         let initialSize = NSSize(width: 880, height: 550)
 
         let tv = NSTabView(frame: NSRect(origin: .zero, size: initialSize))
@@ -75,22 +82,19 @@ final class TmuxWindowController: NSWindowController {
             alert.informativeText = "Please install tmux to use this window type."
             alert.runModal()
             win.close()
-            return
+            return nil
         }
 
-        let daemonSessions = syncAwait { try await UtenaDaemonClient.shared.fetchOnce() } ?? []
-        let pickerResult = SessionPickerController.run(sessions: daemonSessions)
-        var attachTarget: String?
-
-        switch pickerResult {
-        case .cancel:
-            win.close(); return
-        case .attach(let session):
-            guard let tmuxName = session.tmuxSession?.name else { win.close(); return }
+        let attachTarget: String?
+        switch launch {
+        case .attach(let tmuxName):
             attachTarget = tmuxName
         case .create(let name, let workspaceId, let branch):
             guard let s = syncAwait({ try await UtenaDaemonClient.shared.createSession(name: name, workspaceId: workspaceId, branch: branch) }),
-                  let tmuxName = s.tmuxSession?.name else { win.close(); return }
+                  let tmuxName = s.tmuxSession?.name else {
+                win.close()
+                return nil
+            }
             attachTarget = tmuxName
         }
 
@@ -99,6 +103,7 @@ final class TmuxWindowController: NSWindowController {
             isReady = true
         } catch {
             win.close()
+            return nil
         }
     }
 
@@ -576,7 +581,7 @@ extension TmuxWindowController: SwitcherDelegate {
         // Then dispatch on next runloop tick to ensure cleanup before new window appears.
         switcher.close()
         if let app = NSApp.delegate as? AppDelegate {
-            DispatchQueue.main.async { app.openTmuxWindow(nil) }
+            DispatchQueue.main.async { app.openLauncher(nil) }
         }
     }
 
