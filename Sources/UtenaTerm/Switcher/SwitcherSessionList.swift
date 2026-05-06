@@ -126,8 +126,10 @@ final class SwitcherSessionList: NSView {
         let subSize = subStr.size()
         subStr.draw(at: NSPoint(x: nameX, y: nameY - subSize.height - 4))
 
-        // Right side: attention badge or window count
-        if s.needsAttention {
+        // Right side: status badge (priority order), or attention badge, or window count
+        if let badge = statusBadge(for: s) {
+            drawStatusBadge(in: rect, badge: badge)
+        } else if s.needsAttention {
             drawAttentionBadge(in: rect, sess: s)
         } else if !s.windows.isEmpty {
             drawWindowCount(in: rect, count: s.windows.count)
@@ -182,5 +184,91 @@ final class SwitcherSessionList: NSView {
         let p = convert(event.locationInWindow, from: nil)
         guard rowFrames.firstIndex(where: { $0.rect.contains(p) }) != nil else { return }
         if event.clickCount >= 2 { onActivate?() }
+    }
+
+    private struct StatusBadge {
+        let label: String
+        let color: NSColor
+    }
+
+    /// Determine the highest-priority applicable status badge.
+    /// Priority order:
+    /// 1. broken → BROKEN (red)
+    /// 2. creating → CREATING (warning/yellow)
+    /// 3. aggregatedClaudeStatus:
+    ///    - needsAttention → ATTN (red)
+    ///    - working → WORKING (brand/pink)
+    ///    - readyForReview → REVIEW (green)
+    ///    - done → DONE (muted)
+    ///    - idle → no badge
+    /// 4. archived/completed/inactive → status name (muted)
+    private func statusBadge(for s: Session) -> StatusBadge? {
+        if s.status == .broken {
+            return StatusBadge(label: "BROKEN", color: Palette.statusError)
+        }
+        if s.status == .creating {
+            return StatusBadge(label: "CREATING", color: Palette.statusWarning)
+        }
+        if let aggregated = s.aggregatedClaudeStatus {
+            switch aggregated {
+            case .needsAttention:
+                return StatusBadge(label: "ATTN", color: Palette.statusError)
+            case .working:
+                return StatusBadge(label: "WORKING", color: Palette.brand)
+            case .readyForReview:
+                return StatusBadge(label: "REVIEW", color: Palette.statusSuccess)
+            case .done:
+                return StatusBadge(label: "DONE", color: Palette.textMuted)
+            case .idle:
+                return nil  // no badge for idle
+            }
+        }
+        // Inactive/archived/completed sessions get a muted badge
+        switch s.status {
+        case .archived:
+            return StatusBadge(label: "ARCHIVED", color: Palette.textMuted)
+        case .completed:
+            return StatusBadge(label: "COMPLETED", color: Palette.textMuted)
+        case .inactive:
+            return StatusBadge(label: "INACTIVE", color: Palette.textMuted)
+        default:
+            return nil
+        }
+    }
+
+    private func drawStatusBadge(in rect: NSRect, badge: StatusBadge) {
+        let label = NSAttributedString(string: badge.label, attributes: [
+            .font: Palette.monoSmall,
+            .foregroundColor: textColorForBackground(badge.color),
+        ])
+        let labelSize = label.size()
+        let hPad: CGFloat = 4
+        let badgeRect = NSRect(
+            x: rect.maxX - 14 - labelSize.width - hPad * 2,
+            y: rect.midY - 8,
+            width: labelSize.width + hPad * 2,
+            height: 16
+        )
+
+        let path = NSBezierPath(roundedRect: badgeRect, xRadius: 3, yRadius: 3)
+        badge.color.setFill()
+        path.fill()
+
+        label.draw(at: NSPoint(x: badgeRect.midX - labelSize.width / 2,
+                               y: badgeRect.midY - labelSize.height / 2))
+    }
+
+    /// Determine text color for a background color: bright colors get dark text,
+    /// dim colors get light text.
+    private func textColorForBackground(_ bgColor: NSColor) -> NSColor {
+        let srgb = bgColor.usingColorSpace(.sRGB) ?? bgColor
+        // Simple luminance heuristic: bright colors (e.g., mint, yellow) get dark text;
+        // muted/dark colors get light text.
+        let lum = 0.299 * srgb.redComponent + 0.587 * srgb.greenComponent + 0.114 * srgb.blueComponent
+        if lum > 0.6 {
+            return Palette.surfaceDeep  // dark text on bright bg
+        } else {
+            return Palette.textPrimary  // light text on dark bg
+        }
     }
 }

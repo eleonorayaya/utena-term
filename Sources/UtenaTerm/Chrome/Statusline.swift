@@ -126,13 +126,15 @@ final class Statusline: NSView {
         return x
     }
 
-    // MARK: - Right: branch · clock · ⌃b s switcher
+    // MARK: - Right: branch · clock · ⌃b ? help · ⌃b s switcher
 
     private func drawRight() -> CGFloat {
         let hPad: CGFloat = 14
         var x = bounds.width - hPad
 
         x = drawSwitcherHint(rightAnchor: x)
+        x = drawDot(rightAnchor: x)
+        x = drawHelpHint(rightAnchor: x)
         x = drawDot(rightAnchor: x)
 
         let clock = NSAttributedString(string: Self.clockFormatter.string(from: Date()), attributes: [
@@ -178,6 +180,22 @@ final class Statusline: NSView {
         label.draw(at: NSPoint(x: x, y: bounds.midY - ls.height / 2))
         x -= 6
         x = KbdGlyph.drawTrailing("s", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
+        x = KbdGlyph.drawTrailing("b", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
+        x = KbdGlyph.drawTrailing("⌃", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
+        return x
+    }
+
+    private func drawHelpHint(rightAnchor: CGFloat) -> CGFloat {
+        var x = rightAnchor
+        let label = NSAttributedString(string: "help", attributes: [
+            .font: Palette.monoBody,
+            .foregroundColor: Palette.textSubtle,
+        ])
+        let ls = label.size()
+        x -= ls.width
+        label.draw(at: NSPoint(x: x, y: bounds.midY - ls.height / 2))
+        x -= 6
+        x = KbdGlyph.drawTrailing("?", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
         x = KbdGlyph.drawTrailing("b", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
         x = KbdGlyph.drawTrailing("⌃", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
         return x
