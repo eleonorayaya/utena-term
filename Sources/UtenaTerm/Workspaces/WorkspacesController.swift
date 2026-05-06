@@ -5,12 +5,6 @@ protocol WorkspacesDelegate: AnyObject {
     func workspacesAddWorkspace() -> String?
 }
 
-/// Tracks a confirm-on-second-press action (e.g., delete).
-private struct PendingConfirmation {
-    let workspaceId: UInt
-    let action: String  // "delete", etc.
-    let expiry: Date
-}
 
 /// WorkspacesController owns the floating panel for workspace management.
 final class WorkspacesController: NSWindowController {
@@ -20,9 +14,8 @@ final class WorkspacesController: NSWindowController {
     private var allWorkspaces: [Workspace] = []
     private var selectedIndex: Int = 0
     private var showHidden: Bool = false
-    private var pendingConfirmation: PendingConfirmation?
-    private var errorMessage: String?
-    private var errorDismissTimer: Timer?
+    private var deleteGuard = DoublePressGuard<UInt>()
+    private let errorManager = OverlayErrorManager()
 
     private let header = WorkspacesHeader()
     private let listView = WorkspacesList()
@@ -31,21 +24,7 @@ final class WorkspacesController: NSWindowController {
     // MARK: - Lifecycle
 
     convenience init() {
-        let panel = WorkspacesPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .modalPanel
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
+        let panel = WorkspacesPanel(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         self.init(window: panel)
         panel.keyHandler = self
@@ -55,29 +34,18 @@ final class WorkspacesController: NSWindowController {
     // MARK: - Open / close
 
     func open(near anchorWindow: NSWindow?) {
-        if let anchor = anchorWindow, let panel = window {
-            let anchorFrame = anchor.frame
-            let panelSize = panel.frame.size
-            let origin = NSPoint(
-                x: anchorFrame.midX - panelSize.width / 2,
-                y: anchorFrame.midY - panelSize.height / 2
-            )
-            panel.setFrameOrigin(origin)
-        } else {
-            window?.center()
-        }
-
         Task { @MainActor in
             await refreshWorkspaces()
         }
 
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        if let panel = window {
+            centerPanel(panel, near: anchorWindow)
+        }
     }
 
     override func close() {
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = nil
+        errorManager.tearDown()
         window?.orderOut(nil)
     }
 
@@ -150,7 +118,7 @@ final class WorkspacesController: NSWindowController {
         header.totalCount = allWorkspaces.count
         header.hiddenCount = hiddenCount
         header.showingHidden = showHidden
-        footer.errorMessage = errorMessage
+        footer.errorMessage = errorManager.errorMessage
     }
 
     // MARK: - Actions
@@ -182,9 +150,8 @@ final class WorkspacesController: NSWindowController {
     private func deleteSelected() {
         guard !allWorkspaces.isEmpty else { return }
         let ws = allWorkspaces[selectedIndex]
-        let now = Date()
-        if let pending = pendingConfirmation, pending.workspaceId == ws.id, pending.action == "delete", pending.expiry > now {
-            pendingConfirmation = nil
+        if deleteGuard.confirm(ws.id) {
+            // Second press — execute delete.
             listView.confirmDeleteFor = nil
             Task { @MainActor in
                 do {
@@ -198,7 +165,7 @@ final class WorkspacesController: NSWindowController {
                 }
             }
         } else {
-            pendingConfirmation = PendingConfirmation(workspaceId: ws.id, action: "delete", expiry: now.addingTimeInterval(3))
+            // First press — show affordance.
             listView.confirmDeleteFor = ws.id
             refreshUI()
         }
@@ -231,18 +198,14 @@ final class WorkspacesController: NSWindowController {
     // MARK: - Error handling
 
     private func showError(_ message: String) {
-        errorMessage = message
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            self?.clearError()
+        errorManager.show(message) { [weak self] in
+            self?.refreshUI()
         }
         refreshUI()
     }
 
     private func clearError() {
-        errorMessage = nil
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = nil
+        errorManager.clear()
         refreshUI()
     }
 }
@@ -272,17 +235,5 @@ extension WorkspacesController: WorkspacesKeyHandling {
     }
 }
 
-/// Root view — mirrors SwitcherRootView.
-final class WorkspacesRootView: NSView {
-    override var wantsDefaultClipping: Bool { true }
-
-    override func updateLayer() {
-        wantsLayer = true
-        layer?.cornerRadius = 20
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        layer?.borderColor = Palette.border.cgColor
-    }
-
-    override var allowsVibrancy: Bool { false }
-}
+/// Root view — uses shared OverlayRootView from Chrome module.
+typealias WorkspacesRootView = OverlayRootView

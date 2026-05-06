@@ -4,12 +4,9 @@ protocol PullRequestsKeyHandling: AnyObject {
     func pullRequestsKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel for pull requests — mirrors WorkspacesPanel.
-final class PullRequestsPanel: NSPanel {
+/// Floating, non-activating panel for pull requests — extends OverlayPanel.
+final class PullRequestsPanel: OverlayPanel {
     weak var keyHandler: PullRequestsKeyHandling?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
 
     override func keyDown(with event: NSEvent) {
         if keyHandler?.pullRequestsKeyDown(event) == true { return }
@@ -17,24 +14,7 @@ final class PullRequestsPanel: NSPanel {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if keyHandler?.pullRequestsKeyDown(NSEvent.escape()) == true { return }
+        if keyHandler?.pullRequestsKeyDown(NSEvent.synthesizeEscape()) == true { return }
         super.cancelOperation(sender)
-    }
-}
-
-private extension NSEvent {
-    static func escape() -> NSEvent {
-        NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "\u{1B}",
-            charactersIgnoringModifiers: "\u{1B}",
-            isARepeat: false,
-            keyCode: 0x35
-        )!
     }
 }

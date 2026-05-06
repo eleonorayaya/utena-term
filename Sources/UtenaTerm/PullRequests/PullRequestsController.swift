@@ -13,8 +13,7 @@ final class PullRequestsController: NSWindowController {
     private var workspaceName: String = ""
     private var workspaceId: UInt = 0
     private var isLoading: Bool = false
-    private var errorMessage: String?
-    private var errorDismissTimer: Timer?
+    private let errorManager = OverlayErrorManager()
 
     private let header = PullRequestsHeader()
     private let listView = PullRequestsList()
@@ -23,21 +22,7 @@ final class PullRequestsController: NSWindowController {
     // MARK: - Lifecycle
 
     convenience init() {
-        let panel = PullRequestsPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .modalPanel
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
+        let panel = PullRequestsPanel(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600))
 
         self.init(window: panel)
         panel.keyHandler = self
@@ -50,29 +35,18 @@ final class PullRequestsController: NSWindowController {
         self.workspaceId = workspaceId
         self.workspaceName = workspaceName
 
-        if let anchor = anchorWindow, let panel = window {
-            let anchorFrame = anchor.frame
-            let panelSize = panel.frame.size
-            let origin = NSPoint(
-                x: anchorFrame.midX - panelSize.width / 2,
-                y: anchorFrame.midY - panelSize.height / 2
-            )
-            panel.setFrameOrigin(origin)
-        } else {
-            window?.center()
-        }
-
         Task { @MainActor in
             await refreshPullRequests()
         }
 
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        if let panel = window {
+            centerPanel(panel, near: anchorWindow)
+        }
     }
 
     override func close() {
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = nil
+        errorManager.tearDown()
         window?.orderOut(nil)
     }
 
@@ -148,7 +122,7 @@ final class PullRequestsController: NSWindowController {
         listView.update(pullRequests: allPullRequests, selectedIndex: 0)
         header.workspaceName = workspaceName
         header.isLoading = isLoading
-        header.errorMessage = errorMessage
+        header.errorMessage = errorManager.errorMessage
     }
 
     // MARK: - Actions
@@ -169,18 +143,14 @@ final class PullRequestsController: NSWindowController {
     // MARK: - Error handling
 
     private func showError(_ message: String) {
-        errorMessage = message
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            self?.clearError()
+        errorManager.show(message) { [weak self] in
+            self?.refreshUI()
         }
         refreshUI()
     }
 
     private func clearError() {
-        errorMessage = nil
-        errorDismissTimer?.invalidate()
-        errorDismissTimer = nil
+        errorManager.clear()
         refreshUI()
     }
 }
@@ -207,17 +177,5 @@ extension PullRequestsController: PullRequestsKeyHandling {
     }
 }
 
-/// Root view — mirrors SwitcherRootView.
-final class PullRequestsRootView: NSView {
-    override var wantsDefaultClipping: Bool { true }
-
-    override func updateLayer() {
-        wantsLayer = true
-        layer?.cornerRadius = 20
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        layer?.borderColor = Palette.border.cgColor
-    }
-
-    override var allowsVibrancy: Bool { false }
-}
+/// Root view — uses shared OverlayRootView from Chrome module.
+typealias PullRequestsRootView = OverlayRootView

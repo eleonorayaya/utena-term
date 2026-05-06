@@ -14,41 +14,19 @@ final class HelpController: NSObject, HelpKeyHandling {
         let width: CGFloat = 480
         let panelFrame = NSRect(x: 0, y: 0, width: width, height: height)
 
-        let panel = HelpPanel(contentRect: panelFrame, styleMask: [.borderless], backing: .buffered, defer: false)
-        panel.level = .floating
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
+        let panel = HelpPanel(contentRect: panelFrame)
+        let (root, _) = panel.installStandardVisualization()
 
-        // Add visual effect view for vibrant dark background
-        let effectView = NSVisualEffectView(frame: panelFrame)
-        effectView.material = .dark
-        effectView.blendingMode = .behindWindow
-        effectView.state = .active
-        panel.contentView = effectView
-
-        // Add content view on top
-        let containerView = NSView(frame: panelFrame)
-        effectView.addSubview(containerView)
-
+        // Add content view on top of the blur
         contentView.frame = panelFrame
-        containerView.addSubview(contentView)
+        root.addSubview(contentView)
 
         panel.keyHandler = self
         self.panel = panel
         isOpen = true
 
-        // Position centered on parent window
-        if let parent = parentWindow {
-            let parentFrame = parent.frame
-            let x = parentFrame.midX - width / 2
-            let y = parentFrame.midY + height / 2
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
-        } else {
-            panel.center()
-        }
-
-        panel.makeKeyAndOrderFront(nil)
+        // Position centered on parent window and make key
+        centerPanel(panel, near: parentWindow)
     }
 
     /// Close the help overlay.

@@ -15,13 +15,6 @@ protocol SwitcherDelegate: AnyObject {
     func switcherArchiveSession(id: UInt)
 }
 
-/// Tracks a confirm-on-second-press action (e.g., delete) — set to a session id when
-/// the user first presses the key, cleared on timeout or successful action.
-private struct PendingConfirmation {
-    let sessionId: UInt
-    let action: String  // "delete", etc.
-    let expiry: Date
-}
 
 /// SwitcherController owns the floating panel and the inner view tree.
 /// Lifecycle: created on first ⌃b p, kept alive across opens (cheap to
@@ -37,7 +30,7 @@ final class SwitcherController: NSWindowController {
     private var selectedIndex: Int = 0
     private var query: String = ""
     private var sessionsObserver: NSObjectProtocol?
-    private var pendingConfirmation: PendingConfirmation?
+    private var deleteGuard = DoublePressGuard<UInt>()
 
     private let header = SwitcherHeader()
     private let listView = SwitcherSessionList()
@@ -47,21 +40,7 @@ final class SwitcherController: NSWindowController {
     // MARK: - Lifecycle
 
     convenience init() {
-        let panel = SwitcherPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1080, height: 720),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .modalPanel
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
+        let panel = SwitcherPanel(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 720))
 
         self.init(window: panel)
         panel.keyHandler = self
@@ -85,19 +64,6 @@ final class SwitcherController: NSWindowController {
     // MARK: - Open / close
 
     func open(near anchorWindow: NSWindow?) {
-        // Position over the active terminal window so it feels owned by it.
-        if let anchor = anchorWindow, let panel = window {
-            let anchorFrame = anchor.frame
-            let panelSize = panel.frame.size
-            let origin = NSPoint(
-                x: anchorFrame.midX - panelSize.width / 2,
-                y: anchorFrame.midY - panelSize.height / 2
-            )
-            panel.setFrameOrigin(origin)
-        } else {
-            window?.center()
-        }
-
         // Pre-populate from cached sessions so the panel renders instantly,
         // even on the first open before any notification has fired.
         Task { @MainActor in
@@ -106,7 +72,9 @@ final class SwitcherController: NSWindowController {
         }
 
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        if let panel = window {
+            centerPanel(panel, near: anchorWindow)
+        }
     }
 
     override func close() {
@@ -296,14 +264,12 @@ final class SwitcherController: NSWindowController {
     private func deleteSelected() {
         guard !filtered.isEmpty else { return }
         let s = filtered[selectedIndex]
-        let now = Date()
-        if let pending = pendingConfirmation, pending.sessionId == s.id, pending.action == "delete", pending.expiry > now {
+        if deleteGuard.confirm(s.id) {
             // Second press within the window — confirm the delete.
-            pendingConfirmation = nil
             listView.confirmKillFor = nil
             delegate?.switcherDeleteSession(id: s.id)
         } else {
-            pendingConfirmation = PendingConfirmation(sessionId: s.id, action: "delete", expiry: now.addingTimeInterval(3))
+            // First press — show affordance.
             listView.confirmKillFor = s.id
         }
         refreshUI()
@@ -322,7 +288,7 @@ final class SwitcherController: NSWindowController {
     }
 
     private func createSession() {
-        pendingConfirmation = nil
+        deleteGuard.clear()
         listView.confirmKillFor = nil
         delegate?.switcherCreateSession()
         close()
@@ -385,18 +351,5 @@ extension SwitcherController: SwitcherKeyHandling {
     }
 }
 
-/// Root view is a thin wrapper so we can apply a corner-radius mask + a
-/// faint hairline border without the visual-effect view eating it.
-final class SwitcherRootView: NSView {
-    override var wantsDefaultClipping: Bool { true }
-
-    override func updateLayer() {
-        wantsLayer = true
-        layer?.cornerRadius = 20
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        layer?.borderColor = Palette.border.cgColor
-    }
-
-    override var allowsVibrancy: Bool { false }
-}
+/// Root view — uses shared OverlayRootView from Chrome module.
+typealias SwitcherRootView = OverlayRootView
