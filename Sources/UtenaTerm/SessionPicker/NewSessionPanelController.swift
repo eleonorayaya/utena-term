@@ -63,9 +63,17 @@ final class NewSessionPanelController: NSWindowController {
         listView.update(items: [], selectedIndex: 0)
         footer.currentStep = .workspace
 
+        // Reset visibility — re-opens may land on a different step than last time.
+        listView.isHidden = false
+        textField.isHidden = true
+
         showWindow(nil)
         if let panel = window {
             centerPanel(panel, near: anchorWindow)
+            // Take first responder explicitly so keystrokes reach
+            // newSessionKeyDown (otherwise NSTextField inside the tree may
+            // claim focus and swallow j/k/arrows).
+            panel.makeFirstResponder(panel)
         }
 
         // Fetch workspaces asynchronously
@@ -113,6 +121,11 @@ final class NewSessionPanelController: NSWindowController {
         root.addSubview(footer)
 
         textField.onCommit = { [weak self] in self?.createSessionIfValid() }
+
+        // Only the name step shows the text field — start it hidden so it
+        // doesn't overlap the workspace/branch list and steal first-responder.
+        textField.isHidden = true
+        listView.isHidden = false
 
         NSLayoutConstraint.activate([
             // Blur fills the whole panel.
