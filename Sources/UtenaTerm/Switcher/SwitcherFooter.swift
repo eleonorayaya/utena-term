@@ -1,0 +1,113 @@
+import AppKit
+
+/// Bottom keybinds row, grouped by scope (move | session | window | help).
+final class SwitcherFooter: NSView {
+
+    override func draw(_ dirtyRect: NSRect) {
+        Palette.surfaceDeep.withAlphaComponent(0.6).setFill()
+        bounds.fill()
+
+        // Top hairline
+        Palette.borderSubtle.setFill()
+        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+
+        var x: CGFloat = 0
+        x = drawGroup(label: "MOVE", at: x, items: [
+            .k(["j", "k"], desc: "row"),
+        ])
+        x = drawGroup(label: "SESSION", at: x, items: [
+            .k(["↵"], desc: "attach"),
+            .k(["c"], desc: "new"),
+            .k(["x"], desc: "kill"),
+        ])
+        x = drawGroup(label: "WINDOW", at: x, items: [
+            .k(["1", "9"], desc: "jump", joinChar: "–"),
+        ])
+        // Right-anchored: esc
+        let hPad: CGFloat = 14
+        var xR = bounds.width - hPad
+        xR = drawKbd("esc", rightAnchor: xR)
+    }
+
+    private enum Item {
+        case keys([String], desc: String, joinChar: String)
+        static func k(_ ks: [String], desc: String, joinChar: String = "") -> Item {
+            .keys(ks, desc: desc, joinChar: joinChar)
+        }
+    }
+
+    private func drawGroup(label: String, at startX: CGFloat, items: [Item]) -> CGFloat {
+        let yMid = bounds.midY
+        var x = startX
+
+        let lbl = NSAttributedString(string: label, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold),
+            .foregroundColor: Palette.textSubtle,
+            .kern: 0.6,
+        ])
+        let ls = lbl.size()
+        x += 14
+        lbl.draw(at: NSPoint(x: x, y: yMid - ls.height / 2))
+        x += ls.width + 12
+
+        for item in items {
+            if case let .keys(ks, desc, joinChar) = item {
+                for (i, k) in ks.enumerated() {
+                    if i > 0, !joinChar.isEmpty {
+                        let sep = NSAttributedString(string: joinChar, attributes: [
+                            .font: Palette.monoBody,
+                            .foregroundColor: Palette.textSubtle,
+                        ])
+                        let ss = sep.size()
+                        sep.draw(at: NSPoint(x: x, y: yMid - ss.height / 2))
+                        x += ss.width + 4
+                    }
+                    let r = NSRect(x: x, y: yMid - 8,
+                                   width: max(18, k.size(withAttributes: [.font: Palette.monoSmallBold]).width + 10),
+                                   height: 16)
+                    drawKbdRect(r, label: k)
+                    x = r.maxX + 4
+                }
+                let d = NSAttributedString(string: desc, attributes: [
+                    .font: Palette.monoBody,
+                    .foregroundColor: Palette.textMuted,
+                ])
+                let ds = d.size()
+                x += 4
+                d.draw(at: NSPoint(x: x, y: yMid - ds.height / 2))
+                x += ds.width + 14
+            }
+        }
+
+        x += 6
+        // Right divider
+        Palette.borderSubtle.setFill()
+        NSRect(x: x, y: 8, width: 1, height: bounds.height - 16).fill()
+        x += 1
+        return x
+    }
+
+    private func drawKbdRect(_ r: NSRect, label: String) {
+        Palette.surfaceTertiary.setFill()
+        let path = NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4)
+        path.fill()
+        Palette.borderSubtle.setStroke()
+        path.stroke()
+        let str = NSAttributedString(string: label, attributes: [
+            .font: Palette.monoSmallBold,
+            .foregroundColor: Palette.textTertiary,
+        ])
+        let sz = str.size()
+        str.draw(at: NSPoint(x: r.midX - sz.width / 2, y: r.midY - sz.height / 2))
+    }
+
+    @discardableResult
+    private func drawKbd(_ label: String, rightAnchor: CGFloat) -> CGFloat {
+        let yMid = bounds.midY
+        let strSize = label.size(withAttributes: [.font: Palette.monoSmallBold])
+        let w = max(28, strSize.width + 12)
+        let r = NSRect(x: rightAnchor - w, y: yMid - 8, width: w, height: 16)
+        drawKbdRect(r, label: label)
+        return r.minX - 8
+    }
+}
