@@ -34,6 +34,7 @@ final class TmuxWindowController: NSWindowController {
     }()
     private lazy var help: HelpController = HelpController()
     private lazy var pullRequests: PullRequestsController = PullRequestsController()
+    private var newSessionPicker: NewSessionPanelController?
 
     convenience init?(launch: TmuxLaunch) {
         let initialSize = NSSize(width: 880, height: 550)
@@ -577,12 +578,34 @@ extension TmuxWindowController: SwitcherDelegate {
     }
 
     func switcherCreateSession() {
-        // Close switcher first so its panel doesn't steal focus from the new picker.
-        // Then dispatch on next runloop tick to ensure cleanup before new window appears.
+        // Close the switcher panel first; the new session picker is also a panel
+        // and stacking two non-activating panels gets messy.
         switcher.close()
-        if let app = NSApp.delegate as? AppDelegate {
-            DispatchQueue.main.async { app.openLauncher(nil) }
+
+        let picker = NewSessionPanelController()
+        picker.onComplete = { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .cancel:
+                // Just reopen the switcher; user can try again or close.
+                if let win = self.window { self.switcher.open(near: win) }
+            case .attach(let s):
+                guard let n = s.tmuxSession?.name,
+                      let app = NSApp.delegate as? AppDelegate,
+                      let controller = TmuxWindowController(launch: .attach(tmuxName: n))
+                else { return }
+                app.adoptTmuxController(controller)
+                controller.showWindow(nil)
+            case .create(let name, let wsId, let branch):
+                guard let app = NSApp.delegate as? AppDelegate,
+                      let controller = TmuxWindowController(launch: .create(name: name, workspaceId: wsId, branch: branch))
+                else { return }
+                app.adoptTmuxController(controller)
+                controller.showWindow(nil)
+            }
         }
+        self.newSessionPicker = picker
+        if let win = window { picker.open(near: win) }
     }
 
     func switcherDeleteSession(id: UInt) {

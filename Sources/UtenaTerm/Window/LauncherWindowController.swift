@@ -73,8 +73,11 @@ extension LauncherWindowController: SwitcherDelegate {
     }
 
     func switcherCreateSession() {
-        // Close the switcher panel first; the new session picker is also a panel
-        // and stacking two non-activating panels gets messy.
+        // Detach onClose first — closing the switcher would otherwise close
+        // the launcher via the cascade, killing the new-session picker we're
+        // about to open inside it.
+        let savedOnClose = switcher.onClose
+        switcher.onClose = nil
         switcher.close()
 
         let picker = NewSessionPanelController()
@@ -82,7 +85,8 @@ extension LauncherWindowController: SwitcherDelegate {
             guard let self else { return }
             switch outcome {
             case .cancel:
-                // Re-open the switcher so the launcher remains usable.
+                // Re-arm the cascade and reopen the switcher.
+                self.switcher.onClose = savedOnClose
                 if let win = self.window { self.switcher.open(near: win) }
             case .attach(let s):
                 guard let n = s.tmuxSession?.name else { return }
