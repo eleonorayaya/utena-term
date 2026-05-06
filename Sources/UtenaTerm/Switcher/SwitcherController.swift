@@ -315,11 +315,11 @@ final class SwitcherController: NSWindowController {
 extension SwitcherController: SwitcherKeyHandling {
     func switcherKeyDown(_ event: NSEvent) -> Bool {
         switch event.keyCode {
-        case 36:  attachSelected(); return true   // ⏎
-        case 53:  clearQuery(); return true       // ⎋ — clears query then dismisses
-        case 125: move(by: +1); return true       // ↓
-        case 126: move(by: -1); return true       // ↑
-        case 51:  backspaceQuery(); return true   // ⌫
+        case KeyMap.Key.returnKey: attachSelected(); return true
+        case KeyMap.Key.escape:    clearQuery(); return true   // clears query, then dismisses
+        case KeyMap.Key.arrowDown: move(by: +1); return true
+        case KeyMap.Key.arrowUp:   move(by: -1); return true
+        case KeyMap.Key.backspace: backspaceQuery(); return true
         default: break
         }
         let chars = event.charactersIgnoringModifiers ?? ""

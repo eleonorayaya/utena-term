@@ -11,7 +11,7 @@ final class SwitcherSessionList: NSView {
     var confirmKillFor: UInt? { didSet { needsDisplay = true } }
 
     private var sections: [Section] = []
-    private var rowFrames: [NSRect] = []
+    private var rowFrames: [(globalIdx: Int, rect: NSRect)] = []
     private var sessions: [Session] = []
     private var selectedIndex: Int = 0
     private var currentName: String = ""
@@ -31,9 +31,14 @@ final class SwitcherSessionList: NSView {
     }
 
     private func rebuildSections() {
-        let attention = sessions.filter { $0.needsAttention }
-        let active    = sessions.filter { !$0.needsAttention && ($0.status == .active || $0.status == .creating) }
-        let idle      = sessions.filter { !$0.needsAttention && !($0.status == .active || $0.status == .creating) }
+        var attention: [Session] = []
+        var active: [Session] = []
+        var idle: [Session] = []
+        for s in sessions {
+            if s.needsAttention { attention.append(s) }
+            else if s.status == .active || s.status == .creating { active.append(s) }
+            else { idle.append(s) }
+        }
         sections = [
             Section(label: "needs you", glyph: "♥", sessions: attention),
             Section(label: "active",    glyph: "✦", sessions: active),
@@ -64,10 +69,13 @@ final class SwitcherSessionList: NSView {
                 let rowH: CGFloat = 50
                 let rowRect = NSRect(x: hPad, y: y - rowH,
                                      width: bounds.width - 2 * hPad, height: rowH)
-                let globalIdx = sessions.firstIndex(where: { $0.id == s.id }) ?? 0
-                let isSelected = globalIdx == selectedIndex
+                // rowFrames.count is the section-display index, which the
+                // controller's `selectedIndex` already aligns with — the
+                // controller sorts `filtered` by section priority before
+                // handing it to us, so the visual order matches.
+                let isSelected = rowFrames.count == selectedIndex
                 drawRow(s, in: rowRect, focused: isSelected, isCurrent: s.tmuxSessionName == currentName || s.name == currentName)
-                rowFrames.append(rowRect)
+                rowFrames.append((globalIdx: rowFrames.count, rect: rowRect))
                 y -= rowH + 2
             }
             if sIdx < sections.count - 1 { y -= 8 }
@@ -172,22 +180,7 @@ final class SwitcherSessionList: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        for (i, frame) in rowFrames.enumerated() where frame.contains(p) {
-            // (mouse-driven select-and-attach)
-            // Map row index back to global session index
-            // For simplicity: compute by walking sections in order
-            var counter = 0
-            for section in sections {
-                for _ in section.sessions {
-                    if counter == i {
-                        if event.clickCount >= 2 {
-                            onActivate?()
-                        }
-                        return
-                    }
-                    counter += 1
-                }
-            }
-        }
+        guard rowFrames.firstIndex(where: { $0.rect.contains(p) }) != nil else { return }
+        if event.clickCount >= 2 { onActivate?() }
     }
 }

@@ -95,7 +95,7 @@ final class WindowTabRow: NSView {
         x -= ns.width
         new.draw(at: NSPoint(x: x, y: bounds.midY - ns.height / 2))
         x -= 6
-        x = drawKbd("c", rightAnchor: x)
+        x = KbdGlyph.drawTrailing("c", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceBackground)
         x -= 8
 
         let dot = NSAttributedString(string: "·", attributes: [
@@ -114,7 +114,7 @@ final class WindowTabRow: NSView {
         x -= js.width
         jump.draw(at: NSPoint(x: x, y: bounds.midY - js.height / 2))
         x -= 6
-        x = drawKbd("9", rightAnchor: x)
+        x = KbdGlyph.drawTrailing("9", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceBackground)
         let dash = NSAttributedString(string: "–", attributes: [
             .font: Palette.monoBody,
             .foregroundColor: Palette.textSubtle,
@@ -123,26 +123,8 @@ final class WindowTabRow: NSView {
         x -= dsh.width
         dash.draw(at: NSPoint(x: x - 2, y: bounds.midY - dsh.height / 2))
         x -= 4
-        x = drawKbd("1", rightAnchor: x)
+        x = KbdGlyph.drawTrailing("1", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceBackground)
         return x
-    }
-
-    private func drawKbd(_ s: String, rightAnchor: CGFloat) -> CGFloat {
-        let str = NSAttributedString(string: s, attributes: [
-            .font: Palette.monoSmallBold,
-            .foregroundColor: Palette.textTertiary,
-        ])
-        let sz = str.size()
-        let w = max(16, sz.width + 8)
-        let kbdRect = NSRect(x: rightAnchor - w, y: bounds.midY - 7, width: w, height: 14)
-        Palette.surfaceBackground.setFill()
-        let path = NSBezierPath(roundedRect: kbdRect, xRadius: 3, yRadius: 3)
-        path.fill()
-        Palette.borderSubtle.setStroke()
-        path.stroke()
-        str.draw(at: NSPoint(x: kbdRect.midX - sz.width / 2,
-                             y: kbdRect.midY - sz.height / 2))
-        return kbdRect.minX - 3
     }
 
     override func mouseDown(with event: NSEvent) {

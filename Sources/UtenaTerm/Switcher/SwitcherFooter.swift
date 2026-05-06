@@ -88,26 +88,12 @@ final class SwitcherFooter: NSView {
     }
 
     private func drawKbdRect(_ r: NSRect, label: String) {
-        Palette.surfaceTertiary.setFill()
-        let path = NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4)
-        path.fill()
-        Palette.borderSubtle.setStroke()
-        path.stroke()
-        let str = NSAttributedString(string: label, attributes: [
-            .font: Palette.monoSmallBold,
-            .foregroundColor: Palette.textTertiary,
-        ])
-        let sz = str.size()
-        str.draw(at: NSPoint(x: r.midX - sz.width / 2, y: r.midY - sz.height / 2))
+        KbdGlyph.draw(in: r, label: label, background: Palette.surfaceTertiary)
     }
 
     @discardableResult
     private func drawKbd(_ label: String, rightAnchor: CGFloat) -> CGFloat {
-        let yMid = bounds.midY
-        let strSize = label.size(withAttributes: [.font: Palette.monoSmallBold])
-        let w = max(28, strSize.width + 12)
-        let r = NSRect(x: rightAnchor - w, y: yMid - 8, width: w, height: 16)
-        drawKbdRect(r, label: label)
-        return r.minX - 8
+        return KbdGlyph.drawTrailing(label, rightAnchor: rightAnchor, midY: bounds.midY,
+                                     style: .spacious, background: Palette.surfaceTertiary) - 4
     }
 }

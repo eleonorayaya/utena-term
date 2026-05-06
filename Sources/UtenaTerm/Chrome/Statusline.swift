@@ -177,28 +177,10 @@ final class Statusline: NSView {
         x -= ls.width
         label.draw(at: NSPoint(x: x, y: bounds.midY - ls.height / 2))
         x -= 6
-        x = drawKbd("s", rightAnchor: x)
-        x = drawKbd("b", rightAnchor: x)
-        x = drawKbd("⌃", rightAnchor: x)
+        x = KbdGlyph.drawTrailing("s", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
+        x = KbdGlyph.drawTrailing("b", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
+        x = KbdGlyph.drawTrailing("⌃", rightAnchor: x, midY: bounds.midY, style: .compact, background: Palette.surfaceDeep)
         return x
-    }
-
-    private func drawKbd(_ s: String, rightAnchor: CGFloat) -> CGFloat {
-        let str = NSAttributedString(string: s, attributes: [
-            .font: Palette.monoSmallBold,
-            .foregroundColor: Palette.textTertiary,
-        ])
-        let sz = str.size()
-        let w = max(16, sz.width + 8)
-        let kbdRect = NSRect(x: rightAnchor - w, y: bounds.midY - 7, width: w, height: 14)
-        Palette.surfaceDeep.setFill()
-        let path = NSBezierPath(roundedRect: kbdRect, xRadius: 3, yRadius: 3)
-        path.fill()
-        Palette.borderSubtle.setStroke()
-        path.stroke()
-        str.draw(at: NSPoint(x: kbdRect.midX - sz.width / 2,
-                             y: kbdRect.midY - sz.height / 2))
-        return kbdRect.minX - 3
     }
 
     private func drawDot(rightAnchor: CGFloat) -> CGFloat {

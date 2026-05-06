@@ -2,9 +2,9 @@ import AppKit
 
 /// Top header strip: branding + search field + counts + prefix hint.
 final class SwitcherHeader: NSView {
-    var totalCount: Int = 0 { didSet { needsDisplay = true } }
-    var attentionCount: Int = 0 { didSet { needsDisplay = true } }
-    var queryDisplay: String = "" { didSet { needsDisplay = true } }
+    var totalCount: Int = 0 { didSet { if totalCount != oldValue { needsDisplay = true } } }
+    var attentionCount: Int = 0 { didSet { if attentionCount != oldValue { needsDisplay = true } } }
+    var queryDisplay: String = "" { didSet { if queryDisplay != oldValue { needsDisplay = true } } }
 
     override func draw(_ dirtyRect: NSRect) {
         // Bottom hairline
@@ -130,28 +130,10 @@ final class SwitcherHeader: NSView {
             .font: Palette.monoBody,
             .foregroundColor: Palette.textSubtle,
         ])
-        x = drawKbdGlyph("b", rightAnchor: x, midY: midY)
-        x = drawKbdGlyph("⌃", rightAnchor: x, midY: midY)
+        x = KbdGlyph.drawTrailing("b", rightAnchor: x, midY: midY, style: .spacious, background: Palette.surfaceTertiary)
+        x = KbdGlyph.drawTrailing("⌃", rightAnchor: x, midY: midY, style: .spacious, background: Palette.surfaceTertiary)
         let ps = prefix.size()
         x -= ps.width
         prefix.draw(at: NSPoint(x: x, y: midY - ps.height / 2))
-    }
-
-    private func drawKbdGlyph(_ s: String, rightAnchor: CGFloat, midY: CGFloat) -> CGFloat {
-        let str = NSAttributedString(string: s, attributes: [
-            .font: Palette.monoSmallBold,
-            .foregroundColor: Palette.textTertiary,
-        ])
-        let sz = str.size()
-        let w = max(18, sz.width + 10)
-        let kbdRect = NSRect(x: rightAnchor - w, y: midY - 8, width: w, height: 16)
-        Palette.surfaceTertiary.setFill()
-        let path = NSBezierPath(roundedRect: kbdRect, xRadius: 4, yRadius: 4)
-        path.fill()
-        Palette.borderSubtle.setStroke()
-        path.stroke()
-        str.draw(at: NSPoint(x: kbdRect.midX - sz.width / 2,
-                             y: kbdRect.midY - sz.height / 2))
-        return kbdRect.minX - 4
     }
 }

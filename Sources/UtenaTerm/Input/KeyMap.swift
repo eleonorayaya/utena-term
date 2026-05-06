@@ -11,6 +11,11 @@ enum KeyMap {
         static let w: UInt16            = 0x0D
         static let leftBracket: UInt16  = 0x21
         static let rightBracket: UInt16 = 0x1E
+        static let returnKey: UInt16    = 0x24
+        static let escape: UInt16       = 0x35
+        static let backspace: UInt16    = 0x33
+        static let arrowDown: UInt16    = 0x7D
+        static let arrowUp: UInt16      = 0x7E
     }
 
     static func ghosttyKey(for keyCode: UInt16) -> GhosttyKey {
