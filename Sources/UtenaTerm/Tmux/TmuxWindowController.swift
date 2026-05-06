@@ -7,6 +7,7 @@ final class TmuxWindowController: NSWindowController {
     private var windowPanes: [String: [String]] = [:]   // windowID → DFS-ordered pane IDs
     private var tabItems: [String: NSTabViewItem] = [:]  // windowID → tab item
     private(set) var orderedWindowIDs: [String] = []
+    private var pendingSelectAfterLayout: Set<String> = []
     private var focusedPane: TmuxPane?
     private var currentWindowID: String?
     private var lastRefreshedSize: (cols: Int, rows: Int) = (0, 0)
@@ -114,10 +115,29 @@ final class TmuxWindowController: NSWindowController {
         windowPanes[windowID] = node.leafIDs()
 
         let containerFrame: NSRect
-        if let item = tabItems[windowID] {
-            containerFrame = item.view?.bounds ?? tabView.contentRect
-            rootView.frame = containerFrame
+        if let existing = tabItems[windowID] {
+            // NSTabView caches the original item.view at add-time and won't
+            // re-wire when we mutate .view in place — the tab stays blank.
+            // Force a refresh by removing the placeholder and re-inserting
+            // a fresh tab item with the real view set up front.
+            let idx = tabView.indexOfTabViewItem(existing)
+            let wasSelected = tabView.selectedTabViewItem === existing
+            if idx != NSNotFound { tabView.removeTabViewItem(existing) }
+            let item = NSTabViewItem()
+            item.label = windowID
             item.view = rootView
+            tabItems[windowID] = item
+            if idx != NSNotFound, idx <= tabView.numberOfTabViewItems {
+                tabView.insertTabViewItem(item, at: idx)
+            } else {
+                tabView.addTabViewItem(item)
+            }
+            containerFrame = tabView.contentRect
+            rootView.frame = containerFrame
+            if wasSelected || pendingSelectAfterLayout.contains(windowID) {
+                pendingSelectAfterLayout.remove(windowID)
+                selectWindow(id: windowID)
+            }
         } else {
             containerFrame = tabView.contentRect
             let item = NSTabViewItem()
@@ -127,14 +147,9 @@ final class TmuxWindowController: NSWindowController {
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
             if currentWindowID == nil {
-                // First window seen — adopt it as current.
                 currentWindowID = windowID
                 tabView.selectTabViewItem(item)
             } else {
-                // Past initial attach: a new window appeared (typically
-                // because the user pressed ⌃b c). Mirror tmux's default
-                // auto-select. If %session-window-changed fires too, it's
-                // a no-op (selecting the same window).
                 selectWindow(id: windowID)
             }
         }
@@ -226,6 +241,7 @@ final class TmuxWindowController: NSWindowController {
         panes.removeAll()
         windowPanes.removeAll()
         orderedWindowIDs.removeAll()
+        pendingSelectAfterLayout.removeAll()
         focusedPane = nil
         currentWindowID = nil
         lastRefreshedSize = (0, 0)
@@ -276,13 +292,18 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
     }
 
     func session(_ session: TmuxControlSession, didAddWindow windowID: String) {
-        // Track the window ID for the chrome immediately, but don't create
-        // an empty NSTabViewItem here — NSTabView caches the initial nil
-        // view and won't refresh when applyLayout later assigns the real
-        // root view. applyLayout creates the tab item itself, with the
-        // view set up front.
+        guard tabItems[windowID] == nil else { return }
+        let item = NSTabViewItem()
+        item.label = windowID
+        tabItems[windowID] = item
+        tabView.addTabViewItem(item)
         appendWindowID(windowID)
         chrome?.windowsDidChange()
+        // Past initial attach: a user-initiated new-window. Remember to
+        // switch to it once applyLayout has populated its view.
+        if currentWindowID != nil {
+            pendingSelectAfterLayout.insert(windowID)
+        }
     }
 
     func session(_ session: TmuxControlSession, didCloseWindow windowID: String) {
@@ -290,6 +311,7 @@ extension TmuxWindowController: TmuxControlSessionDelegate {
             tabView.removeTabViewItem(item)
         }
         orderedWindowIDs.removeAll { $0 == windowID }
+        pendingSelectAfterLayout.remove(windowID)
         let removedIDs = windowPanes.removeValue(forKey: windowID) ?? []
         for id in removedIDs {
             if focusedPane?.paneID == id { focusedPane = nil }
