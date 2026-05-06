@@ -10,11 +10,37 @@ extension Notification.Name {
 
 // Note: Branch is defined in Session.swift. We redeclare it here for decoding
 // the branch list response since it doesn't include the 'id' field.
+//
+// The daemon currently returns branches as plain strings (just the name).
+// Decode from either form so we tolerate the structured shape too if the
+// daemon ever switches to it.
 struct BranchInfo: Decodable, Equatable {
     let name: String
     let existsLocal: Bool
     let existsRemote: Bool
     let isDirty: Bool
+
+    init(name: String, existsLocal: Bool = false, existsRemote: Bool = false, isDirty: Bool = false) {
+        self.name = name
+        self.existsLocal = existsLocal
+        self.existsRemote = existsRemote
+        self.isDirty = isDirty
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let s = try? single.decode(String.self) {
+            self.init(name: s)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try c.decode(String.self, forKey: .name),
+            existsLocal: try c.decodeIfPresent(Bool.self, forKey: .existsLocal) ?? false,
+            existsRemote: try c.decodeIfPresent(Bool.self, forKey: .existsRemote) ?? false,
+            isDirty: try c.decodeIfPresent(Bool.self, forKey: .isDirty) ?? false
+        )
+    }
 
     enum CodingKeys: String, CodingKey {
         case name
