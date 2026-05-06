@@ -92,7 +92,22 @@ final class GhosttyBridge {
             guard let ptr = buf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
             ghostty_terminal_vt_write(terminal, ptr, buf.count)
         }
+        syncEncoderFromTerminal()
+    }
+
+    /// Sync encoder flags from terminal state, then force legacy Ctrl+letter
+    /// encoding by clearing kitty keyboard protocol and modifyOtherKeys.
+    /// Without this, after a TUI (e.g. Claude) enables progressive enhancement
+    /// the encoder switches modes and Ctrl+O encodes as the literal byte 0x6F
+    /// ("o") instead of 0x0F. We don't yet have a need for those protocols and
+    /// keeping them off makes Ctrl chords behave consistently across the
+    /// session.
+    private func syncEncoderFromTerminal() {
         ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal)
+        var kittyFlags = GhosttyKittyKeyFlags(GHOSTTY_KITTY_KEY_DISABLED)
+        ghostty_key_encoder_setopt(keyEncoder, GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS, &kittyFlags)
+        var modifyOtherKeys2 = false
+        ghostty_key_encoder_setopt(keyEncoder, GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2, &modifyOtherKeys2)
     }
 
     func resize(cols: UInt16, rows: UInt16, cellWidthPx: UInt32 = 0, cellHeightPx: UInt32 = 0) {

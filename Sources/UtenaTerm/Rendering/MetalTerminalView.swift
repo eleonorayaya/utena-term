@@ -122,19 +122,33 @@ final class MetalTerminalView: MTKView {
         }
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
-        var text: String? = event.characters
+
+        // Prefer charactersIgnoringModifiers as the encoder's utf8 text.
+        // event.characters has macOS pre-translate Ctrl+letter to the matching
+        // ASCII control char (Ctrl+O → "\u{0F}") and option-dead-keys to glyphs
+        // the encoder doesn't recognize. Niling out text in those cases left
+        // ghostty with only the key code, which made it return zero bytes for
+        // legacy Ctrl chords — Ctrl+O never made it onto the wire. Function
+        // keys come back as 0xF700–0xF8FF private-use codepoints; null those
+        // out so the encoder falls back to key-code dispatch.
+        var text: String? = event.charactersIgnoringModifiers
         if event.modifierFlags.contains(.option) {
             text = nil
-        } else if let t = text {
-            let allPrintable = t.unicodeScalars.allSatisfy { v in
+        }
+        if let t = text {
+            let unsafe = t.unicodeScalars.contains { v in
                 let c = v.value
-                return c > 0x001F && c != 0x007F && !(c >= 0xF700 && c <= 0xF8FF)
+                return c < 0x0020 || c == 0x007F || (c >= 0xF700 && c <= 0xF8FF)
             }
-            if !allPrintable { text = nil }
+            if unsafe { text = nil }
         }
-        if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
-            onInput?(bytes)
+
+        let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text)
+        if ProcessInfo.processInfo.environment["UTENA_KEY_LOG"] != nil {
+            let hex = bytes.map { $0.map { String(format: "%02x", $0) }.joined(separator: " ") } ?? "(nil)"
+            FileHandle.standardError.write(Data("[key↓] code=\(event.keyCode) mods=\(mods) text=\(text ?? "nil") → bytes=\(hex)\n".utf8))
         }
+        if let bytes { onInput?(bytes) }
     }
 
     @objc func paste(_ sender: Any?) {
