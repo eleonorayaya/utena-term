@@ -59,10 +59,8 @@ final class TmuxControlSession {
         _ = ioctl(master, TIOCSWINSZ_REQ, &ws)
 
         let env = ProcessInfo.processInfo.environment
-        // Forward LC_* in addition to LANG so the inner shell + tmux see a
-        // UTF-8 locale. Falling back to LANG/LC_CTYPE = en_US.UTF-8 when the
-        // host hasn't set them ensures multibyte chars don't get mangled into
-        // single-byte cells (the â/Â everywhere bug).
+        // Forward LC_* / LANG so tmux + the inner shell see a UTF-8 locale;
+        // fall back to en_US.UTF-8 when the host hasn't set them.
         let envKeys = [
             "HOME", "PATH", "USER", "LOGNAME", "TMPDIR", "XDG_CONFIG_HOME",
             "LANG", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES",
@@ -150,7 +148,8 @@ final class TmuxControlSession {
             if Self.isControlByte(data[i]) {
                 var hexArgs = ""
                 while i < data.endIndex, Self.isControlByte(data[i]) {
-                    hexArgs += String(format: " %02x", data[i])
+                    hexArgs += " "
+                    hexArgs += Self.hex2[Int(data[i])]
                     i += 1
                 }
                 rawWrite("send-keys -t \(paneID) -H\(hexArgs)\n")
@@ -165,6 +164,10 @@ final class TmuxControlSession {
     }
 
     private static func isControlByte(_ b: UInt8) -> Bool { b < 0x20 || b == 0x7F }
+
+    /// Precomputed two-digit lowercase hex strings for every byte value.
+    /// `String(format:)` allocates per call; this fires per-byte per keystroke.
+    private static let hex2: [String] = (0...0xFF).map { String(format: "%02x", $0) }
 
     func splitPane(target paneID: String, vertical: Bool) async throws {
         let flag = vertical ? "-v" : "-h"
@@ -196,11 +199,7 @@ final class TmuxControlSession {
     }
 
     func renameWindow(target windowID: String, name: String) {
-        // Escape backslashes and quotes to handle spaces and special characters
-        let escaped = name
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        rawWrite("rename-window -t \(windowID) \"\(escaped)\"\n")
+        rawWrite("rename-window -t \(windowID) \(Self.tmuxQuoteBytes(name.utf8))\n")
     }
 
     func listSessions() async throws -> String {
@@ -257,15 +256,25 @@ final class TmuxControlSession {
 
     private static let outputPrefix: [UInt8] = Array("%output ".utf8)
 
+    private enum B {
+        static let esc: UInt8 = 0x1B           // ESC, DCS intro lead
+        static let dcsP: UInt8 = 0x50          // 'P', DCS intro second byte
+        static let space: UInt8 = 0x20
+        static let dcsFinal: ClosedRange<UInt8> = 0x40 ... 0x7E
+    }
+
     private func handleLine(_ rawLine: Data) {
-        // Strip tmux's DCS intro (`ESC P <params> <0x40-0x7E>`) at the byte
-        // level so binary %output payloads further down survive intact.
+        // Strip tmux's DCS intro (`ESC P <params> <final 0x40-0x7E>`) at the
+        // byte level so binary %output payloads further down survive intact.
+        // NB: `bytes` is a Data slice — its indices are absolute (non-zero
+        // startIndex), so all index arithmetic below uses bytes.startIndex /
+        // endIndex, never `0` / `count`.
         var bytes = rawLine
         if bytes.count >= 2,
-           bytes[bytes.startIndex] == 0x1B,
-           bytes[bytes.startIndex + 1] == 0x50 {
+           bytes[bytes.startIndex] == B.esc,
+           bytes[bytes.startIndex + 1] == B.dcsP {
             var i = bytes.startIndex + 2
-            while i < bytes.endIndex, !(bytes[i] >= 0x40 && bytes[i] <= 0x7E) {
+            while i < bytes.endIndex, !B.dcsFinal.contains(bytes[i]) {
                 i += 1
             }
             if i < bytes.endIndex {
@@ -280,7 +289,7 @@ final class TmuxControlSession {
         if bytes.count >= Self.outputPrefix.count,
            bytes.prefix(Self.outputPrefix.count).elementsEqual(Self.outputPrefix) {
             let after = bytes.index(bytes.startIndex, offsetBy: Self.outputPrefix.count)
-            guard let spaceIdx = bytes[after...].firstIndex(of: 0x20),
+            guard let spaceIdx = bytes[after...].firstIndex(of: B.space),
                   let paneID = String(bytes: bytes[after..<spaceIdx], encoding: .ascii)
             else { return }
             let data = ControlLineParser.unescapeOctal(bytes[(spaceIdx + 1)...])

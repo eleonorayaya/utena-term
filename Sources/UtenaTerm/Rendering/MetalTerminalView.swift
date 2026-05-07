@@ -122,27 +122,27 @@ final class MetalTerminalView: MTKView {
         }
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
-
-        // The ghostty encoder needs the unmodified character (ghostty/vt/key/event.h):
-        // not C0/DEL (Ctrl+letter pre-translates) and not the macOS PUA function-key
-        // range (0xF700–0xF8FF) — pass nil for those and let the key-code dispatch.
-        // Option-dead-keys arrive as platform glyphs the encoder can't read, so nil
-        // those too.
-        var text: String? = event.charactersIgnoringModifiers
-        if event.modifierFlags.contains(.option) {
-            text = nil
-        }
-        if let t = text {
-            let unsafe = t.unicodeScalars.contains { v in
-                let c = v.value
-                return c < 0x0020 || c == 0x007F || (c >= 0xF700 && c <= 0xF8FF)
-            }
-            if unsafe { text = nil }
-        }
-
+        let text = encoderText(for: event)
         if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
             onInput?(bytes)
         }
+    }
+
+    /// Returns the utf8 text the ghostty encoder expects for this key event,
+    /// or nil for cases the encoder must dispatch from key code alone:
+    ///  - option-dead-keys (platform glyphs the encoder can't read)
+    ///  - C0/DEL bytes (Ctrl+letter macOS pre-translates)
+    ///  - macOS function-key PUA range 0xF700–0xF8FF
+    /// Per ghostty/vt/key/event.h, the encoder wants the unmodified character.
+    private func encoderText(for event: NSEvent) -> String? {
+        guard !event.modifierFlags.contains(.option),
+              let t = event.charactersIgnoringModifiers
+        else { return nil }
+        let unsafe = t.unicodeScalars.contains { v in
+            let c = v.value
+            return c < 0x0020 || c == 0x007F || (0xF700 ... 0xF8FF).contains(c)
+        }
+        return unsafe ? nil : t
     }
 
     @objc func paste(_ sender: Any?) {
