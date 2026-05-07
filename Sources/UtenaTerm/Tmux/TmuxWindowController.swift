@@ -216,35 +216,57 @@ final class TmuxWindowController: NSWindowController {
     // Sets NSSplitView divider positions to match tmux column/row proportions.
     private func applySplitPositions(view: NSView, node: TmuxLayoutNode, frame: NSRect) {
         guard let sv = view as? NSSplitView else { return }
+        // NSSplitView's `addArrangedSubview` is a no-op when the view is
+        // already an arranged subview, so if `buildViewHierarchy` ever returns
+        // duplicate views (e.g. two leaves resolving to the same pane.view via
+        // a stale `panes[id]` cache, or a layout-string ID collision after a
+        // split that recycled a pane number), `arrangedSubviews.count` will
+        // be smaller than `children.count` and the unguarded `[i]` subscript
+        // crashes with an `__NSSingleObjectArrayI` exception. Iterate by zip
+        // so we apply what we can and log the discrepancy for diagnosis.
         switch node {
         case .leaf: return
         case .hsplit(let children):
             let totalCols = children.reduce(0) { $0 + $1.cols }
             guard totalCols > 0 else { return }
+            let arranged = sv.arrangedSubviews
+            if arranged.count != children.count {
+                DebugLog.log("tmux", "applySplitPositions hsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
+            }
+            let pairCount = min(children.count, arranged.count)
             var pos: CGFloat = 0
-            for (i, child) in children.dropLast().enumerated() {
+            for i in 0 ..< (pairCount - (pairCount > 0 ? 1 : 0)) {
+                let child = children[i]
                 pos += frame.width * CGFloat(child.cols) / CGFloat(totalCols)
                 sv.setPosition(pos, ofDividerAt: i)
                 pos += sv.dividerThickness
             }
-            for (i, child) in children.enumerated() {
+            for i in 0 ..< pairCount {
+                let child = children[i]
                 let childW = frame.width * CGFloat(child.cols) / CGFloat(totalCols)
                 let childFrame = NSRect(x: 0, y: 0, width: childW, height: frame.height)
-                applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
+                applySplitPositions(view: arranged[i], node: child, frame: childFrame)
             }
         case .vsplit(let children):
             let totalRows = children.reduce(0) { $0 + $1.rows }
             guard totalRows > 0 else { return }
+            let arranged = sv.arrangedSubviews
+            if arranged.count != children.count {
+                DebugLog.log("tmux", "applySplitPositions vsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
+            }
+            let pairCount = min(children.count, arranged.count)
             var pos: CGFloat = 0
-            for (i, child) in children.dropLast().enumerated() {
+            for i in 0 ..< (pairCount - (pairCount > 0 ? 1 : 0)) {
+                let child = children[i]
                 pos += frame.height * CGFloat(child.rows) / CGFloat(totalRows)
                 sv.setPosition(pos, ofDividerAt: i)
                 pos += sv.dividerThickness
             }
-            for (i, child) in children.enumerated() {
+            for i in 0 ..< pairCount {
+                let child = children[i]
                 let childH = frame.height * CGFloat(child.rows) / CGFloat(totalRows)
                 let childFrame = NSRect(x: 0, y: 0, width: frame.width, height: childH)
-                applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
+                applySplitPositions(view: arranged[i], node: child, frame: childFrame)
             }
         }
     }
