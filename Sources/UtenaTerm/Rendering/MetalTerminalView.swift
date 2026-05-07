@@ -27,9 +27,21 @@ final class MetalTerminalView: MTKView {
         computeCellMetrics()
         isPaused = true
         enableSetNeedsDisplay = true
+        // 120fps cap (vs default 60) halves the worst-case wait between
+        // setNeedsDisplay and the next eligible draw on a ProMotion display.
+        // No effect on non-ProMotion panels; the on-demand draw model still
+        // means we only render when bytes arrive.
+        preferredFramesPerSecond = 120
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        (layer as? CAMetalLayer)?.isOpaque = false
+        if let metalLayer = layer as? CAMetalLayer {
+            metalLayer.isOpaque = false
+            // Default is 3; dropping to 2 shaves one frame from the present
+            // pipeline depth. Trade is sustained-throughput headroom under
+            // heavy continuous output, which is fine for an interactive
+            // terminal where echo latency dominates perceived quality.
+            metalLayer.maximumDrawableCount = 2
+        }
     }
 
     required init(coder: NSCoder) { fatalError() }
@@ -113,6 +125,7 @@ final class MetalTerminalView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        Signpost.event("keyDown")
         // ⌘V → paste from system pasteboard. Without this, Cmd-V is forwarded
         // as a literal "v" press so apps inside the terminal never see paste.
         if event.modifierFlags.contains(.command),
