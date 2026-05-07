@@ -151,6 +151,25 @@ final class TmuxWindowController: NSWindowController {
         }
 
         let rootView = buildViewHierarchy(from: node, windowID: windowID)
+        // Detach rootView from any prior parent before handing it to NSTabView.
+        // For split layouts rootView is a freshly-built NSSplitView (no parent
+        // — the noop case). For a single-leaf layout rootView IS pane.view,
+        // which may still be a subview of the previous NSSplitView (e.g. when
+        // closing one of two panes leaves a single survivor): without this
+        // detach NSTabView's item.view points at a view that's parented
+        // elsewhere and the content area renders blank.
+        rootView.removeFromSuperview()
+        // NSSplitView sets `translatesAutoresizingMaskIntoConstraints = false`
+        // on every arranged subview when it adopts them and does NOT restore
+        // it on removal. After a kill-pane reduces 2 → 1 we hand the survivor
+        // (pane.view, formerly an arranged subview) to NSTabView, but with
+        // the flag still false the autoresizingMask we set below is ignored,
+        // NSTabView's autoresizing-based content sizing path can't grow the
+        // view to fill the tab area, and the content renders blank. Restoring
+        // the flag explicitly re-enables the autoresize contract NSTabView
+        // expects. For freshly-built NSSplitView roots this is a no-op (the
+        // flag is already true on a brand-new instance).
+        rootView.translatesAutoresizingMaskIntoConstraints = true
         rootView.autoresizingMask = [.width, .height]
 
         let item = NSTabViewItem()
