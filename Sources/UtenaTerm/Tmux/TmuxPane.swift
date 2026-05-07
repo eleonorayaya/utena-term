@@ -14,6 +14,9 @@ final class TmuxPane {
         let device = MTLCreateSystemDefaultDevice()!
         view = MetalTerminalView(frame: .zero, device: device)
         view.bridge = bridge
+        // Tmux owns pane sizing — see comment on MetalTerminalView.viewDrivesGridSize.
+        view.viewDrivesGridSize = false
+        view.setOwnerGridSize(cols: cols, rows: rows)
         let renderer = TerminalRenderer(device: device, view: view)
         view.renderer = renderer
         view.delegate = renderer
@@ -25,8 +28,6 @@ final class TmuxPane {
             guard let self else { return }
             self.controlSession?.selectPane(target: self.paneID)
         }
-        // onResize: bridge.resize is already called by MetalTerminalView.setFrameSize;
-        // tmux pane layout comes from %layout-change, not from view frame changes.
     }
 
     func receive(_ data: Data) {
@@ -36,6 +37,13 @@ final class TmuxPane {
     }
 
     func resize(cols: UInt16, rows: UInt16) {
-        bridge.resize(cols: cols, rows: rows)
+        view.setOwnerGridSize(cols: cols, rows: rows)
+        // Carry cell-pixel metrics through so hi-DPI rendering stays sharp;
+        // these are the same values setFrameSize would have used and are a
+        // no-op (default 0) only in the unrealistic pre-window state.
+        let scale = view.backingScale
+        let cwPx = UInt32(max(1, Int(round(view.cellWidth * scale))))
+        let chPx = UInt32(max(1, Int(round(view.cellHeight * scale))))
+        bridge.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
     }
 }

@@ -21,6 +21,32 @@ final class MetalTerminalView: MTKView {
     let padX: CGFloat = 8
     let padY: CGFloat = 6
 
+    // Direct PTY panes: the view's bounds are authoritative. setFrameSize
+    // recomputes gridCols/gridRows and pushes them through bridge.resize +
+    // pty.resize via onResize, so the shell sees a grid that matches what
+    // we actually render.
+    //
+    // Tmux panes: tmux owns the layout. We get pane sizes via %layout-change
+    // and the rendered pane bounds may not divide cleanly into that cell
+    // count (per-pane padding + NSSplitView divider eat ~2 cols + a row).
+    // If the view recomputes from bounds and overrides tmux's cols/rows,
+    // the shell (whose SIGWINCH came from tmux) and our VT bridge disagree
+    // by ~2 cols per pane and TUI apps wrap a column or two early. Setting
+    // this to false makes setFrameSize / viewDidChangeBackingProperties
+    // pass through cell-pixel metrics only, preserving the cols/rows the
+    // owner cached via setOwnerGridSize.
+    var viewDrivesGridSize: Bool = true
+    private var ownerCols: UInt16 = 0
+    private var ownerRows: UInt16 = 0
+
+    /// Called by the owner (TmuxPane) whenever tmux hands it new pane
+    /// dimensions. Caches them so subsequent frame / backing-scale changes
+    /// can refresh cell-pixel metrics without trampling tmux's grid size.
+    func setOwnerGridSize(cols: UInt16, rows: UInt16) {
+        ownerCols = cols
+        ownerRows = rows
+    }
+
     override init(frame: NSRect, device: MTLDevice?) {
         font = CTFontCreateWithName("MesloLGS Nerd Font Mono" as CFString, 13, nil)
         super.init(frame: frame, device: device)
@@ -93,7 +119,10 @@ final class MetalTerminalView: MTKView {
         let scale = backingScale
         let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
         let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
-        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        let (cols, rows) = effectiveGridSize()
+        if cols > 0 && rows > 0 {
+            bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        }
         renderer?.invalidateGlyphState()
         setNeedsDisplay(bounds)
     }
@@ -104,13 +133,31 @@ final class MetalTerminalView: MTKView {
         let scale = backingScale
         let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
         let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
-        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        let (cols, rows) = effectiveGridSize()
+        if cols > 0 && rows > 0 {
+            bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        }
         let pxWInt: Int = max(1, Int(newSize.width * backingScale))
         let pxHInt: Int = max(1, Int(newSize.height * backingScale))
         let pxW = UInt16(min(Int(UInt16.max), pxWInt))
         let pxH = UInt16(min(Int(UInt16.max), pxHInt))
-        onResize?(gridCols, gridRows, pxW, pxH)
+        // onResize is for direct-PTY panes that drive pty.resize from the
+        // view's bounds. Tmux panes leave it nil (layout is tmux-driven).
+        if viewDrivesGridSize {
+            onResize?(gridCols, gridRows, pxW, pxH)
+        }
         setNeedsDisplay(bounds)
+    }
+
+    /// View bounds when this pane owns its size; the owner's cached cols/rows
+    /// otherwise. Returns (0, 0) only briefly during init for tmux panes
+    /// before the first %layout-change arrives — callers must skip the
+    /// bridge.resize in that case.
+    private func effectiveGridSize() -> (cols: UInt16, rows: UInt16) {
+        if viewDrivesGridSize {
+            return (gridCols, gridRows)
+        }
+        return (ownerCols, ownerRows)
     }
 
     override var acceptsFirstResponder: Bool { true }
