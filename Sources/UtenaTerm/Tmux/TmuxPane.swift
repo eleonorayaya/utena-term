@@ -30,6 +30,7 @@ final class TmuxPane {
     }
 
     func receive(_ data: Data) {
+        Signpost.event("paneReceive", "pane=\(paneID) bytes=\(data.count)")
         bridge.write(data)
         view.needsDisplay = true
     }
