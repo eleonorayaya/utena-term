@@ -127,41 +127,53 @@ final class TmuxWindowController: NSWindowController {
             panes.removeValue(forKey: id)
         }
 
-        let rootView = buildViewHierarchy(from: node, windowID: windowID)
-        rootView.autoresizingMask = [.width, .height]
         windowPanes[windowID] = node.leafIDs()
 
+        // Capture and remove the existing tab item BEFORE rebuilding the view
+        // hierarchy. buildViewHierarchy reparents existing pane.views into a
+        // new NSSplitView via addArrangedSubview; if those views are still
+        // mounted inside NSTabView at that point, the subsequent
+        // removeTabViewItem prints
+        //   "WARNING: oldView is not a subview of NSTabView. Removing
+        //    oldView from its superview anyways."
+        // and leaves NSTabView with stale internal state — visible as
+        // "first split shows no change, second split finally shows all panes."
+        // Detaching the old tab first lets buildViewHierarchy reparent cleanly.
+        let existing = tabItems[windowID]
+        let existingIdx: Int? = existing.flatMap { e in
+            let i = tabView.indexOfTabViewItem(e)
+            return i == NSNotFound ? nil : i
+        }
+        let existingWasSelected = existing.map { tabView.selectedTabViewItem === $0 } ?? false
+        if let existing {
+            tabView.removeTabViewItem(existing)
+            tabItems.removeValue(forKey: windowID)
+        }
+
+        let rootView = buildViewHierarchy(from: node, windowID: windowID)
+        rootView.autoresizingMask = [.width, .height]
+
+        let item = NSTabViewItem()
+        item.label = windowID
+        item.view = rootView
+        tabItems[windowID] = item
+
         let containerFrame: NSRect
-        if let existing = tabItems[windowID] {
-            // NSTabView caches the original item.view at add-time and won't
-            // re-wire when we mutate .view in place — the tab stays blank.
-            // Force a refresh by removing the placeholder and re-inserting
-            // a fresh tab item with the real view set up front.
-            let idx = tabView.indexOfTabViewItem(existing)
-            let wasSelected = tabView.selectedTabViewItem === existing
-            if idx != NSNotFound { tabView.removeTabViewItem(existing) }
-            let item = NSTabViewItem()
-            item.label = windowID
-            item.view = rootView
-            tabItems[windowID] = item
-            if idx != NSNotFound, idx <= tabView.numberOfTabViewItems {
+        if existing != nil {
+            if let idx = existingIdx, idx <= tabView.numberOfTabViewItems {
                 tabView.insertTabViewItem(item, at: idx)
             } else {
                 tabView.addTabViewItem(item)
             }
             containerFrame = tabView.contentRect
             rootView.frame = containerFrame
-            let shouldSwitch = wasSelected || pendingSelectAfterLayout.contains(windowID)
+            let shouldSwitch = existingWasSelected || pendingSelectAfterLayout.contains(windowID)
             if shouldSwitch {
                 pendingSelectAfterLayout.remove(windowID)
                 selectWindow(id: windowID)
             }
         } else {
             containerFrame = tabView.contentRect
-            let item = NSTabViewItem()
-            item.label = windowID
-            item.view = rootView
-            tabItems[windowID] = item
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
             if currentWindowID == nil {
