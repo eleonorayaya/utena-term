@@ -3,11 +3,31 @@ import GhosttyVt
 
 enum KeyMap {
     enum Key {
+        static let b: UInt16            = 0x0B
+        static let c: UInt16            = 0x08
         static let d: UInt16            = 0x02
+        static let h: UInt16            = 0x04
+        static let i: UInt16            = 0x22
+        static let j: UInt16            = 0x26
+        static let k: UInt16            = 0x28
+        static let l: UInt16            = 0x25
         static let n: UInt16            = 0x2D
+        static let p: UInt16            = 0x23
+        static let s: UInt16            = 0x01
         static let w: UInt16            = 0x0D
+        static let x: UInt16            = 0x07
+        static let z: UInt16            = 0x06
         static let leftBracket: UInt16  = 0x21
         static let rightBracket: UInt16 = 0x1E
+        static let slash: UInt16        = 0x2C
+        static let tab: UInt16          = 0x30
+        static let returnKey: UInt16    = 0x24
+        static let escape: UInt16       = 0x35
+        static let backspace: UInt16    = 0x33
+        static let arrowDown: UInt16    = 0x7D
+        static let arrowUp: UInt16      = 0x7E
+        static let arrowLeft: UInt16    = 0x7B
+        static let arrowRight: UInt16   = 0x7C
     }
 
     static func ghosttyKey(for keyCode: UInt16) -> GhosttyKey {

@@ -1,23 +1,24 @@
 import Foundation
 
-struct SessionsResponse: Codable {
+struct SessionsResponse: Codable, Equatable {
     let sessions: [Session]
 }
 
-struct Session: Codable, Identifiable {
+struct Session: Codable, Identifiable, Equatable {
     let id: UInt
     let name: String
     let status: SessionStatus
     let isAttached: Bool
     let lastUsedAt: Date
     let workspace: Workspace?
-    let gitBranch: Branch?
+    let gitBranch: GitBranch?
     let tmuxSession: TmuxSessionInfo?
     let claudeSessions: [ClaudeSession]
+    let statusError: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, status, isAttached, lastUsedAt
-        case workspace, gitBranch, tmuxSession, claudeSessions
+        case workspace, gitBranch, tmuxSession, claudeSessions, statusError
     }
 
     init(from decoder: Decoder) throws {
@@ -28,9 +29,10 @@ struct Session: Codable, Identifiable {
         isAttached = try c.decode(Bool.self, forKey: .isAttached)
         lastUsedAt = try c.decode(Date.self, forKey: .lastUsedAt)
         workspace = try c.decodeIfPresent(Workspace.self, forKey: .workspace)
-        gitBranch = try c.decodeIfPresent(Branch.self, forKey: .gitBranch)
+        gitBranch = try c.decodeIfPresent(GitBranch.self, forKey: .gitBranch)
         tmuxSession = try c.decodeIfPresent(TmuxSessionInfo.self, forKey: .tmuxSession)
         claudeSessions = try c.decodeIfPresent([ClaudeSession].self, forKey: .claudeSessions) ?? []
+        statusError = try c.decodeIfPresent(String.self, forKey: .statusError)
     }
 
     // Derived — not on the wire
@@ -41,20 +43,59 @@ struct Session: Codable, Identifiable {
     var windows: [TmuxWindowInfo] { tmuxSession?.windows ?? [] }
     var needsAttention: Bool { claudeSessions.contains { $0.status == .needsAttention } }
     var isClaudeWorking: Bool { claudeSessions.contains { $0.status == .working } }
+
+    /// Highest-priority Claude session status in this priority order:
+    /// needs_attention > working > ready_for_review > done > idle
+    var aggregatedClaudeStatus: ClaudeSessionStatus? {
+        let priority: [ClaudeSessionStatus: Int] = [
+            .needsAttention: 0,
+            .working: 1,
+            .readyForReview: 2,
+            .done: 3,
+            .idle: 4,
+        ]
+        return claudeSessions
+            .min { lhs, rhs in
+                (priority[lhs.status] ?? 99) < (priority[rhs.status] ?? 99)
+            }
+            .map { $0.status }
+    }
 }
 
 enum SessionStatus: String, Codable {
     case creating, active, broken, deleted, pending, inactive, archived, completed
 }
 
-struct Workspace: Codable {
+struct Workspace: Codable, Equatable {
     let id: UInt
     let name: String
     let path: String
     let isGitRepo: Bool
+    var isHidden: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, path, isGitRepo, isHidden
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UInt.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        isGitRepo = try c.decode(Bool.self, forKey: .isGitRepo)
+        isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
+    }
+
+    init(id: UInt, name: String, path: String, isGitRepo: Bool, isHidden: Bool = false) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.isGitRepo = isGitRepo
+        self.isHidden = isHidden
+    }
 }
 
-struct Branch: Codable {
+struct GitBranch: Codable, Equatable {
     let id: UInt
     let name: String
     let isDirty: Bool
@@ -62,7 +103,7 @@ struct Branch: Codable {
     let existsRemote: Bool
 }
 
-struct TmuxSessionInfo: Codable {
+struct TmuxSessionInfo: Codable, Equatable {
     let id: UInt
     let name: String
     let startDir: String
@@ -83,13 +124,13 @@ struct TmuxSessionInfo: Codable {
     }
 }
 
-struct TmuxWindowInfo: Codable {
+struct TmuxWindowInfo: Codable, Equatable {
     let index: Int
     let name: String
     let active: Bool
 }
 
-struct ClaudeSession: Codable {
+struct ClaudeSession: Codable, Equatable {
     let id: UInt
     let claudeSessionId: String
     let sessionId: UInt
@@ -103,6 +144,6 @@ enum ClaudeSessionStatus: String, Codable {
     case readyForReview = "ready_for_review"
 }
 
-struct WorkspacesResponse: Codable {
+struct WorkspacesResponse: Codable, Equatable {
     let workspaces: [Workspace]
 }

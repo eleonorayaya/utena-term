@@ -4,7 +4,7 @@ import AppKit
 
 enum SessionPickerResult {
     case attach(Session)
-    case create(name: String, workspaceId: UInt)
+    case create(name: String, workspaceId: UInt, branch: String?)
     case cancel
 }
 
@@ -120,7 +120,7 @@ final class SessionPickerController: NSWindowController {
         newSessionForm.isHidden = true
         newSessionForm.translatesAutoresizingMaskIntoConstraints = false
         blur.addSubview(newSessionForm)
-        newSessionForm.onCommit = { [weak self] name, workspaceId in self?.commitCreate(name: name, workspaceId: workspaceId) }
+        newSessionForm.onCommit = { [weak self] name, workspaceId, branch in self?.commitCreate(name: name, workspaceId: workspaceId, branch: branch) }
         newSessionForm.onCancel = { [weak self] in self?.toggleNewForm() }
 
         NSLayoutConstraint.activate([
@@ -138,7 +138,7 @@ final class SessionPickerController: NSWindowController {
             newSessionForm.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
             newSessionForm.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
             newSessionForm.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
-            newSessionForm.heightAnchor.constraint(equalToConstant: 88),
+            newSessionForm.heightAnchor.constraint(equalToConstant: 110),
         ])
     }
 
@@ -155,9 +155,9 @@ final class SessionPickerController: NSWindowController {
         dismiss()
     }
 
-    private func commitCreate(name: String, workspaceId: UInt) {
+    private func commitCreate(name: String, workspaceId: UInt, branch: String?) {
         guard !name.isEmpty else { return }
-        result = .create(name: name, workspaceId: workspaceId)
+        result = .create(name: name, workspaceId: workspaceId, branch: branch)
         dismiss()
     }
 
@@ -179,7 +179,6 @@ extension SessionPickerController: NSTableViewDataSource, NSTableViewDelegate {
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { 46 }
 }
 
 // MARK: - SessionTableViewDelegate
@@ -205,34 +204,24 @@ final class SessionTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 36:  // Return
-            pickerDelegate?.sessionTableViewDidPressReturn(self)
-        case 53:  // Escape
-            pickerDelegate?.sessionTableViewDidPressEscape(self)
-        case 125: // ↓ / j
-            let next = min(selectedRow + 1, numberOfRows - 1)
-            selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
-            scrollRowToVisible(next)
-        case 126: // ↑ / k
-            let prev = max(selectedRow - 1, 0)
-            selectRowIndexes(IndexSet(integer: prev), byExtendingSelection: false)
-            scrollRowToVisible(prev)
+        case 36: pickerDelegate?.sessionTableViewDidPressReturn(self)
+        case 53: pickerDelegate?.sessionTableViewDidPressEscape(self)
+        case 125: move(by: +1)
+        case 126: move(by: -1)
         default:
-            let ch = event.charactersIgnoringModifiers ?? ""
-            if ch == "j" {
-                let next = min(selectedRow + 1, numberOfRows - 1)
-                selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
-                scrollRowToVisible(next)
-            } else if ch == "k" {
-                let prev = max(selectedRow - 1, 0)
-                selectRowIndexes(IndexSet(integer: prev), byExtendingSelection: false)
-                scrollRowToVisible(prev)
-            } else if ch == "n" {
-                pickerDelegate?.sessionTableViewDidPressN(self)
-            } else {
-                super.keyDown(with: event)
+            switch event.charactersIgnoringModifiers {
+            case "j": move(by: +1)
+            case "k": move(by: -1)
+            case "n": pickerDelegate?.sessionTableViewDidPressN(self)
+            default:  super.keyDown(with: event)
             }
         }
+    }
+
+    private func move(by delta: Int) {
+        let row = max(0, min(selectedRow + delta, numberOfRows - 1))
+        selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        scrollRowToVisible(row)
     }
 }
 
@@ -291,12 +280,25 @@ private final class SessionCellView: NSView {
 // MARK: - New session form
 
 private final class NewSessionFormView: NSView {
+    enum State {
+        case selectWorkspace
+        case selectBranch(workspaceId: UInt)
+        case enterName(workspaceId: UInt, branch: String?)
+    }
+
     let nameField = NSTextField()
     private let workspacePopup = NSPopUpButton()
+    private let branchPopup = NSPopUpButton()
     private let createButton = NSButton()
+    private let backButton = NSButton()
+    private let statusLabel = NSTextField(labelWithString: "")
     private var workspaces: [Workspace] = []
+    private var branches: [BranchInfo] = []
+    private var state: State = .selectWorkspace {
+        didSet { updateUI() }
+    }
 
-    var onCommit: ((String, UInt) -> Void)?
+    var onCommit: ((String, UInt, String?) -> Void)?
     var onCancel: (() -> Void)?
 
     override init(frame: NSRect) {
@@ -307,6 +309,11 @@ private final class NewSessionFormView: NSView {
         separator.translatesAutoresizingMaskIntoConstraints = false
         addSubview(separator)
 
+        statusLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(statusLabel)
+
         nameField.placeholderString = "Session name"
         nameField.font = .systemFont(ofSize: 13)
         nameField.bezelStyle = .roundedBezel
@@ -315,7 +322,23 @@ private final class NewSessionFormView: NSView {
 
         workspacePopup.translatesAutoresizingMaskIntoConstraints = false
         workspacePopup.addItem(withTitle: "No workspace")
+        workspacePopup.target = self
+        workspacePopup.action = #selector(workspaceSelected)
         addSubview(workspacePopup)
+
+        branchPopup.translatesAutoresizingMaskIntoConstraints = false
+        branchPopup.addItem(withTitle: "Loading branches...")
+        branchPopup.target = self
+        branchPopup.action = #selector(branchSelected)
+        addSubview(branchPopup)
+
+        backButton.title = "← Back"
+        backButton.bezelStyle = .inline
+        backButton.font = .systemFont(ofSize: 12)
+        backButton.target = self
+        backButton.action = #selector(goBack)
+        backButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backButton)
 
         createButton.title = "Create"
         createButton.bezelStyle = .rounded
@@ -331,13 +354,25 @@ private final class NewSessionFormView: NSView {
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
 
-            nameField.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
+            statusLabel.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+
+            nameField.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
             nameField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             nameField.widthAnchor.constraint(equalToConstant: 180),
 
             workspacePopup.centerYAnchor.constraint(equalTo: nameField.centerYAnchor),
             workspacePopup.leadingAnchor.constraint(equalTo: nameField.trailingAnchor, constant: 8),
             workspacePopup.widthAnchor.constraint(equalToConstant: 160),
+
+            branchPopup.centerYAnchor.constraint(equalTo: nameField.centerYAnchor),
+            branchPopup.leadingAnchor.constraint(equalTo: nameField.trailingAnchor, constant: 8),
+            branchPopup.widthAnchor.constraint(equalToConstant: 160),
+
+            backButton.centerYAnchor.constraint(equalTo: nameField.centerYAnchor),
+            backButton.leadingAnchor.constraint(equalTo: nameField.trailingAnchor, constant: 8),
+            backButton.widthAnchor.constraint(equalToConstant: 80),
 
             createButton.centerYAnchor.constraint(equalTo: nameField.centerYAnchor),
             createButton.leadingAnchor.constraint(equalTo: workspacePopup.trailingAnchor, constant: 8),
@@ -352,20 +387,120 @@ private final class NewSessionFormView: NSView {
             workspacePopup.addItem(withTitle: "No workspace")
             for w in ws { workspacePopup.addItem(withTitle: w.name) }
         }
+
+        updateUI()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private func updateUI() {
+        switch state {
+        case .selectWorkspace:
+            statusLabel.stringValue = "Step 1 of 3: Select workspace"
+            nameField.isHidden = true
+            workspacePopup.isHidden = false
+            branchPopup.isHidden = true
+            backButton.isHidden = true
+            createButton.isHidden = true
+
+        case .selectBranch(let workspaceId):
+            statusLabel.stringValue = "Step 2 of 3: Select branch"
+            nameField.isHidden = true
+            workspacePopup.isHidden = true
+            branchPopup.isHidden = false
+            backButton.isHidden = false
+            createButton.isHidden = true
+
+            // Fetch branches for this workspace
+            Task { @MainActor in
+                do {
+                    let response = try await UtenaDaemonClient.shared.fetchBranches(workspaceId: workspaceId)
+                    self.branches = response.branches
+                    self.branchPopup.removeAllItems()
+                    self.branchPopup.addItem(withTitle: "+ new branch...")
+                    for b in response.branches {
+                        self.branchPopup.addItem(withTitle: b.name)
+                    }
+                    if let current = response.currentBranch {
+                        if let idx = self.branchPopup.itemTitles.firstIndex(of: current) {
+                            self.branchPopup.selectItem(at: idx)
+                        }
+                    }
+                } catch {
+                    self.branchPopup.removeAllItems()
+                    self.branchPopup.addItem(withTitle: "Error loading branches")
+                    DebugLog.log("picker", "fetchBranches failed: \(error)")
+                }
+            }
+
+        case .enterName:
+            statusLabel.stringValue = "Step 3 of 3: Enter session name"
+            nameField.isHidden = false
+            workspacePopup.isHidden = true
+            branchPopup.isHidden = true
+            backButton.isHidden = false
+            createButton.isHidden = false
+            nameField.becomeFirstResponder()
+        }
+    }
+
+    @objc private func workspaceSelected() {
+        let idx = workspacePopup.indexOfSelectedItem
+        guard idx > 0, idx - 1 < workspaces.count else {
+            return
+        }
+        state = .selectBranch(workspaceId: workspaces[idx - 1].id)
+    }
+
+    @objc private func goBack() {
+        switch state {
+        case .selectWorkspace:
+            return
+        case .selectBranch:
+            state = .selectWorkspace
+            workspacePopup.selectItem(at: 0)
+        case .enterName(let workspaceId, _):
+            state = .selectBranch(workspaceId: workspaceId)
+            branchPopup.selectItem(at: 0)
+        }
+    }
+
     @objc private func create() {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        let idx = workspacePopup.indexOfSelectedItem
-        let workspaceId: UInt? = (idx > 0 && idx - 1 < workspaces.count) ? workspaces[idx - 1].id : nil
-        guard let wid = workspaceId else {
+        guard !name.isEmpty else {
             nameField.shake()
             return
         }
-        onCommit?(name, wid)
+
+        guard case .enterName(let workspaceId, let branch) = state else { return }
+        onCommit?(name, workspaceId, branch)
+    }
+
+    @objc private func branchSelected() {
+        guard case .selectBranch(let workspaceId) = state else { return }
+        let idx = branchPopup.indexOfSelectedItem
+
+        if idx == 0 {
+            // "+ new branch..." selected
+            let alert = NSAlert()
+            alert.messageText = "Enter branch name"
+            alert.informativeText = "Create or checkout a new branch"
+            alert.addButton(withTitle: "Continue")
+            alert.addButton(withTitle: "Cancel")
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            textField.placeholderString = "Branch name"
+            alert.accessoryView = textField
+            alert.beginSheetModal(for: window!) { response in
+                if response == .alertFirstButtonReturn {
+                    let branchName = textField.stringValue.trimmingCharacters(in: .whitespaces)
+                    if !branchName.isEmpty {
+                        self.state = .enterName(workspaceId: workspaceId, branch: branchName)
+                    }
+                }
+            }
+        } else if idx > 0 && idx - 1 < branches.count {
+            state = .enterName(workspaceId: workspaceId, branch: branches[idx - 1].name)
+        }
     }
 }
 

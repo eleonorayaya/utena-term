@@ -87,12 +87,31 @@ final class GhosttyBridge {
         ghostty_terminal_free(terminal)
     }
 
+    private var encoderNeedsSync = true
+
     func write(_ data: Data) {
         data.withUnsafeBytes { buf in
             guard let ptr = buf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
             ghostty_terminal_vt_write(terminal, ptr, buf.count)
         }
+        // Defer the encoder sync until the next encode() — keystrokes are
+        // ~10000× rarer than pane writes, so syncing per write burns 3 FFI
+        // calls for nothing on every chunk of pane output.
+        encoderNeedsSync = true
+    }
+
+    /// Pull terminal-driven options into the encoder, then force kitty
+    /// keyboard / modifyOtherKeys off. Without the override, once a TUI
+    /// (e.g. Claude) enables progressive enhancement the encoder starts
+    /// emitting plain "o" for ⌃o instead of 0x0F. We don't consume those
+    /// protocols anywhere yet.
+    private func syncEncoderFromTerminal() {
         ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal)
+        var kittyFlags = GhosttyKittyKeyFlags(GHOSTTY_KITTY_KEY_DISABLED)
+        ghostty_key_encoder_setopt(keyEncoder, GHOSTTY_KEY_ENCODER_OPT_KITTY_FLAGS, &kittyFlags)
+        var modifyOtherKeys2 = false
+        ghostty_key_encoder_setopt(keyEncoder, GHOSTTY_KEY_ENCODER_OPT_MODIFY_OTHER_KEYS_STATE_2, &modifyOtherKeys2)
+        encoderNeedsSync = false
     }
 
     func resize(cols: UInt16, rows: UInt16, cellWidthPx: UInt32 = 0, cellHeightPx: UInt32 = 0) {
@@ -224,6 +243,7 @@ final class GhosttyBridge {
         action: GhosttyKeyAction,
         utf8text: String?
     ) -> Data? {
+        if encoderNeedsSync { syncEncoderFromTerminal() }
         ghostty_key_event_set_action(keyEvent, action)
         ghostty_key_event_set_key(keyEvent, key)
         ghostty_key_event_set_mods(keyEvent, mods)

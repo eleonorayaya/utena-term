@@ -17,16 +17,21 @@ final class TerminalWindowController: NSWindowController {
 
         let win = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = "Terminal"
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.isMovableByWindowBackground = true
         win.contentView = initialPane.view
         win.makeFirstResponder(initialPane.view)
         win.center()
-        win.isOpaque = false
-        win.backgroundColor = .clear
+        win.backgroundColor = Palette.surfaceBackground
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            win.standardWindowButton(kind)?.isHidden = true
+        }
 
         self.init(window: win)
 
@@ -67,4 +72,15 @@ extension TerminalWindowController: TerminalWindowDelegate {
     func terminalWindowFocusNext()       { splitManager.focusNext() }
     func terminalWindowFocusPrev()       { splitManager.focusPrev() }
     func terminalWindowClosePane()       { splitManager.closePane(splitManager.focusedPane) }
+    func terminalWindowToggleSwitcher()  { /* Switcher is tmux-only — no-op for plain terminal windows. */ }
+    func terminalWindowToggleWorkspaces() { /* Workspaces is tmux-only — no-op for plain terminal windows. */ }
+    func terminalWindowTogglePullRequests() { /* Pull requests is tmux-only — no-op for plain terminal windows. */ }
+    func terminalWindowToggleHelp()      { /* tmux-only. */ }
+    func terminalWindowNewWindow()       { /* tmux-only. */ }
+    func terminalWindowSelectWindow(index: Int) { /* tmux-only. */ }
+    func terminalWindowNextWindow()      { /* tmux-only. */ }
+    func terminalWindowPrevWindow()      { /* tmux-only. */ }
+    func terminalWindowKillTmuxWindow()  { /* tmux-only. */ }
+    func terminalWindowToggleZoom()      { /* tmux-only. */ }
+    func terminalWindowRenameWindow()    { /* tmux-only. */ }
 }

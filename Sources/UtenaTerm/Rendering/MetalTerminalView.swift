@@ -113,21 +113,51 @@ final class MetalTerminalView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // ⌘V → paste from system pasteboard. Without this, Cmd-V is forwarded
+        // as a literal "v" press so apps inside the terminal never see paste.
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "v" {
+            paste(self)
+            return
+        }
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
-        var text: String? = event.characters
-        if event.modifierFlags.contains(.option) {
-            text = nil
-        } else if let t = text {
-            let allPrintable = t.unicodeScalars.allSatisfy { v in
-                let c = v.value
-                return c > 0x001F && c != 0x007F && !(c >= 0xF700 && c <= 0xF8FF)
-            }
-            if !allPrintable { text = nil }
-        }
+        let text = encoderText(for: event)
         if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
             onInput?(bytes)
         }
+    }
+
+    /// Returns the utf8 text the ghostty encoder expects for this key event,
+    /// or nil for cases the encoder must dispatch from key code alone:
+    ///  - option-dead-keys (platform glyphs the encoder can't read)
+    ///  - C0/DEL bytes (Ctrl+letter macOS pre-translates)
+    ///  - macOS function-key PUA range 0xF700–0xF8FF
+    /// Per ghostty/vt/key/event.h, the encoder wants the unmodified character.
+    private func encoderText(for event: NSEvent) -> String? {
+        guard !event.modifierFlags.contains(.option),
+              let t = event.charactersIgnoringModifiers
+        else { return nil }
+        let unsafe = t.unicodeScalars.contains { v in
+            let c = v.value
+            return c < 0x0020 || c == 0x007F || (0xF700 ... 0xF8FF).contains(c)
+        }
+        return unsafe ? nil : t
+    }
+
+    @objc func paste(_ sender: Any?) {
+        guard let s = NSPasteboard.general.string(forType: .string), !s.isEmpty else { return }
+        // Bracketed-paste mode (DEC 2004) — apps that opt in via `ESC[?2004h`
+        // get a wrapped chunk so they can detect pasted vs typed input. The VT
+        // parser handles enable/disable; we always send the wrapper bytes and
+        // it's a no-op if bracketed-paste isn't active.
+        let begin: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E]   // ESC[200~
+        let end:   [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]   // ESC[201~
+        var data = Data()
+        data.append(contentsOf: begin)
+        data.append(contentsOf: Array(s.utf8))
+        data.append(contentsOf: end)
+        onInput?(data)
     }
 
     private var scrollAccumY: CGFloat = 0

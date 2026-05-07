@@ -1,30 +1,100 @@
 import Foundation
 
+extension Notification.Name {
+    /// Posted on the main queue after each successful daemon poll.
+    /// `userInfo["sessions"]` contains the latest `[Session]` snapshot.
+    static let utenaSessionsDidUpdate = Notification.Name("utenaSessionsDidUpdate")
+}
+
+// MARK: - Branch list response
+
+// Note: Branch is defined in Session.swift. We redeclare it here for decoding
+// the branch list response since it doesn't include the 'id' field.
+//
+// The daemon currently returns branches as plain strings (just the name).
+// Decode from either form so we tolerate the structured shape too if the
+// daemon ever switches to it.
+struct BranchInfo: Decodable, Equatable {
+    let name: String
+    let existsLocal: Bool
+    let existsRemote: Bool
+    let isDirty: Bool
+
+    init(name: String, existsLocal: Bool = false, existsRemote: Bool = false, isDirty: Bool = false) {
+        self.name = name
+        self.existsLocal = existsLocal
+        self.existsRemote = existsRemote
+        self.isDirty = isDirty
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let s = try? single.decode(String.self) {
+            self.init(name: s)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try c.decode(String.self, forKey: .name),
+            existsLocal: try c.decodeIfPresent(Bool.self, forKey: .existsLocal) ?? false,
+            existsRemote: try c.decodeIfPresent(Bool.self, forKey: .existsRemote) ?? false,
+            isDirty: try c.decodeIfPresent(Bool.self, forKey: .isDirty) ?? false
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case existsLocal = "exists_local"
+        case existsRemote = "exists_remote"
+        case isDirty = "is_dirty"
+    }
+}
+
+struct BranchListResponse: Decodable {
+    let branches: [BranchInfo]
+    let currentBranch: String?
+
+    enum CodingKeys: String, CodingKey {
+        case branches
+        case currentBranch = "current_branch"
+    }
+}
+
+// MARK: - Create-session input
+
+/// All parameters needed to create a new session. Single source of truth for
+/// the picker → launcher/tmux → daemon-client chain (otherwise this 5-tuple
+/// shows up in three Outcome.create / TmuxLaunch.create / createSession
+/// signatures).
+struct CreateSessionInput: Equatable {
+    let name: String
+    let workspaceId: UInt
+    let branch: String?
+    let baseBranch: String?
+    let createWorktree: Bool
+}
+
+// MARK: - Client
+
 actor UtenaDaemonClient {
     static let shared = UtenaDaemonClient()
 
-    private let baseURL = URL(string: "http://localhost:3333")!
+    let baseURL = URL(string: "http://localhost:3333")!
     private static let pollInterval: UInt64 = 500_000_000 // 500ms
 
-    let sessions: AsyncStream<[Session]>
-    private let continuation: AsyncStream<[Session]>.Continuation
+    private(set) var cachedSessions: [Session] = []
     private var pollingTask: Task<Void, Never>?
 
-    init() {
-        // Bound the buffer to one snapshot — a slow consumer should see the
-        // latest state, not a backlog of stale ~290KB payloads.
-        (sessions, continuation) = AsyncStream<[Session]>.makeStream(bufferingPolicy: .bufferingNewest(1))
-    }
+    init() {}
 
     func start() {
         pollingTask?.cancel()
-        let continuation = self.continuation
         let baseURL = self.baseURL
-        pollingTask = Task {
+        pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     let result = try await Self.fetchSessions(baseURL: baseURL)
-                    continuation.yield(result)
+                    await self?.publish(result)
                 } catch {
                     // Daemon may not be running yet; keep polling silently.
                 }
@@ -38,22 +108,72 @@ actor UtenaDaemonClient {
         pollingTask = nil
     }
 
+    private func publish(_ sessions: [Session]) {
+        guard sessions != cachedSessions else { return }
+        cachedSessions = sessions
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .utenaSessionsDidUpdate,
+                object: nil,
+                userInfo: ["sessions": sessions]
+            )
+        }
+    }
+
     func fetchOnce() async throws -> [Session] {
         try await Self.fetchSessions(baseURL: baseURL)
     }
 
     func fetchWorkspaces() async throws -> [Workspace] {
-        let url = baseURL.appendingPathComponent("workspaces")
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try Self.decoder.decode(WorkspacesResponse.self, from: data).workspaces
+        try await get("workspaces", as: WorkspacesResponse.self).workspaces
     }
 
-    func createSession(name: String, workspaceId: UInt) async throws -> Session {
+    func addWorkspace(path: String, asRoot: Bool = false) async throws -> Workspace {
+        let url = baseURL.appendingPathComponent("workspaces")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ["path": path, "as_root": asRoot] as [String: Any]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try Self.decoder.decode(Workspace.self, from: data)
+    }
+
+    func deleteWorkspace(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("workspaces/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func setWorkspaceHidden(id: UInt, hidden: Bool) async throws {
+        let url = baseURL.appendingPathComponent("workspaces/\(id)/hidden")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["hidden": hidden])
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func fetchBranches(workspaceId: UInt) async throws -> BranchListResponse {
+        try await get("workspaces/\(workspaceId)/branches", as: BranchListResponse.self)
+    }
+
+    func createSession(_ input: CreateSessionInput) async throws -> Session {
         let url = baseURL.appendingPathComponent("sessions")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try Self.encoder.encode(CreateSessionRequest(name: name, workspaceId: workspaceId))
+        req.httpBody = try Self.encoder.encode(CreateSessionRequest(input: input))
         let (data, _) = try await URLSession.shared.data(for: req)
         var created = try Self.decoder.decode(Session.self, from: data)
         for _ in 0 ..< 20 {
@@ -65,15 +185,51 @@ actor UtenaDaemonClient {
         return created
     }
 
+    func deleteSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func repairSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)/repair")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    func archiveSession(id: UInt) async throws {
+        let url = baseURL.appendingPathComponent("sessions/\(id)/archive")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    private func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
+        let url = baseURL.appendingPathComponent(path)
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try Self.decoder.decode(T.self, from: data)
+    }
+
     private static func fetchSessions(baseURL: URL) async throws -> [Session] {
         let url = baseURL.appendingPathComponent("sessions")
         let (data, _) = try await URLSession.shared.data(from: url)
         return try decoder.decode(SessionsResponse.self, from: data).sessions
     }
 
-    private static let encoder = JSONEncoder()
+    static let encoder = JSONEncoder()
 
-    private static let decoder: JSONDecoder = {
+    static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .custom { path in
             AnyKey(stringValue: convertKey(path.last!.stringValue))
@@ -134,11 +290,22 @@ private struct AnyKey: CodingKey {
 }
 
 private struct CreateSessionRequest: Encodable {
-    let name: String
-    let workspaceId: UInt
+    let input: CreateSessionInput
 
     enum CodingKeys: String, CodingKey {
         case name
         case workspaceId = "workspace_id"
+        case branch
+        case baseBranch = "base_branch"
+        case createWorktree = "create_worktree"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(input.name, forKey: .name)
+        try container.encode(input.workspaceId, forKey: .workspaceId)
+        try container.encodeIfPresent(input.branch, forKey: .branch)
+        try container.encodeIfPresent(input.baseBranch, forKey: .baseBranch)
+        try container.encode(input.createWorktree, forKey: .createWorktree)
     }
 }
