@@ -16,5 +16,10 @@ let package = Package(
             ]
         ),
         .binaryTarget(name: "GhosttyVt", path: "Frameworks/ghostty-vt.xcframework"),
+        .testTarget(
+            name: "UtenaTermTests",
+            dependencies: ["utena-term"],
+            path: "Tests/UtenaTermTests"
+        ),
     ]
 )
