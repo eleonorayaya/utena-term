@@ -354,6 +354,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         enc.endEncoding()
         cb.present(drawable)
         cb.commit()
+        Signpost.event("draw")
 
         tv.bridge.clearDirty()
     }

@@ -127,41 +127,72 @@ final class TmuxWindowController: NSWindowController {
             panes.removeValue(forKey: id)
         }
 
-        let rootView = buildViewHierarchy(from: node, windowID: windowID)
-        rootView.autoresizingMask = [.width, .height]
         windowPanes[windowID] = node.leafIDs()
 
+        // Capture and remove the existing tab item BEFORE rebuilding the view
+        // hierarchy. buildViewHierarchy reparents existing pane.views into a
+        // new NSSplitView via addArrangedSubview; if those views are still
+        // mounted inside NSTabView at that point, the subsequent
+        // removeTabViewItem prints
+        //   "WARNING: oldView is not a subview of NSTabView. Removing
+        //    oldView from its superview anyways."
+        // and leaves NSTabView with stale internal state — visible as
+        // "first split shows no change, second split finally shows all panes."
+        // Detaching the old tab first lets buildViewHierarchy reparent cleanly.
+        let existing = tabItems[windowID]
+        let existingIdx: Int? = existing.flatMap { e in
+            let i = tabView.indexOfTabViewItem(e)
+            return i == NSNotFound ? nil : i
+        }
+        let existingWasSelected = existing.map { tabView.selectedTabViewItem === $0 } ?? false
+        if let existing {
+            tabView.removeTabViewItem(existing)
+            tabItems.removeValue(forKey: windowID)
+        }
+
+        let rootView = buildViewHierarchy(from: node, windowID: windowID)
+        // Detach rootView from any prior parent before handing it to NSTabView.
+        // For split layouts rootView is a freshly-built NSSplitView (no parent
+        // — the noop case). For a single-leaf layout rootView IS pane.view,
+        // which may still be a subview of the previous NSSplitView (e.g. when
+        // closing one of two panes leaves a single survivor): without this
+        // detach NSTabView's item.view points at a view that's parented
+        // elsewhere and the content area renders blank.
+        rootView.removeFromSuperview()
+        // NSSplitView sets `translatesAutoresizingMaskIntoConstraints = false`
+        // on every arranged subview when it adopts them and does NOT restore
+        // it on removal. After a kill-pane reduces 2 → 1 we hand the survivor
+        // (pane.view, formerly an arranged subview) to NSTabView, but with
+        // the flag still false the autoresizingMask we set below is ignored,
+        // NSTabView's autoresizing-based content sizing path can't grow the
+        // view to fill the tab area, and the content renders blank. Restoring
+        // the flag explicitly re-enables the autoresize contract NSTabView
+        // expects. For freshly-built NSSplitView roots this is a no-op (the
+        // flag is already true on a brand-new instance).
+        rootView.translatesAutoresizingMaskIntoConstraints = true
+        rootView.autoresizingMask = [.width, .height]
+
+        let item = NSTabViewItem()
+        item.label = windowID
+        item.view = rootView
+        tabItems[windowID] = item
+
         let containerFrame: NSRect
-        if let existing = tabItems[windowID] {
-            // NSTabView caches the original item.view at add-time and won't
-            // re-wire when we mutate .view in place — the tab stays blank.
-            // Force a refresh by removing the placeholder and re-inserting
-            // a fresh tab item with the real view set up front.
-            let idx = tabView.indexOfTabViewItem(existing)
-            let wasSelected = tabView.selectedTabViewItem === existing
-            if idx != NSNotFound { tabView.removeTabViewItem(existing) }
-            let item = NSTabViewItem()
-            item.label = windowID
-            item.view = rootView
-            tabItems[windowID] = item
-            if idx != NSNotFound, idx <= tabView.numberOfTabViewItems {
+        if existing != nil {
+            if let idx = existingIdx, idx <= tabView.numberOfTabViewItems {
                 tabView.insertTabViewItem(item, at: idx)
             } else {
                 tabView.addTabViewItem(item)
             }
             containerFrame = tabView.contentRect
             rootView.frame = containerFrame
-            let shouldSwitch = wasSelected || pendingSelectAfterLayout.contains(windowID)
+            let shouldSwitch = existingWasSelected || pendingSelectAfterLayout.contains(windowID)
             if shouldSwitch {
                 pendingSelectAfterLayout.remove(windowID)
                 selectWindow(id: windowID)
             }
         } else {
             containerFrame = tabView.contentRect
-            let item = NSTabViewItem()
-            item.label = windowID
-            item.view = rootView
-            tabItems[windowID] = item
             tabView.addTabViewItem(item)
             appendWindowID(windowID)
             if currentWindowID == nil {
@@ -216,35 +247,64 @@ final class TmuxWindowController: NSWindowController {
     // Sets NSSplitView divider positions to match tmux column/row proportions.
     private func applySplitPositions(view: NSView, node: TmuxLayoutNode, frame: NSRect) {
         guard let sv = view as? NSSplitView else { return }
+        // NSSplitView's `addArrangedSubview` is a no-op when the view is
+        // already an arranged subview, so if `buildViewHierarchy` ever returns
+        // duplicate views (e.g. two leaves resolving to the same pane.view via
+        // a stale `panes[id]` cache, or a layout-string ID collision after a
+        // split that recycled a pane number), `arrangedSubviews.count` will
+        // be smaller than `children.count` and the unguarded `[i]` subscript
+        // crashes with an `__NSSingleObjectArrayI` exception. Iterate by zip
+        // so we apply what we can and log the discrepancy for diagnosis.
         switch node {
         case .leaf: return
         case .hsplit(let children):
             let totalCols = children.reduce(0) { $0 + $1.cols }
             guard totalCols > 0 else { return }
-            var pos: CGFloat = 0
-            for (i, child) in children.dropLast().enumerated() {
-                pos += frame.width * CGFloat(child.cols) / CGFloat(totalCols)
-                sv.setPosition(pos, ofDividerAt: i)
-                pos += sv.dividerThickness
+            let arranged = sv.arrangedSubviews
+            if arranged.count != children.count {
+                DebugLog.log("tmux", "applySplitPositions hsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
             }
-            for (i, child) in children.enumerated() {
+            let pairCount = min(children.count, arranged.count)
+            // N panes have N-1 dividers; the position loop is empty (and
+            // would underflow `pairCount - 1`) when arrangedSubviews is
+            // mismatched down to 0 or 1 entry, so guard explicitly.
+            if pairCount > 1 {
+                var pos: CGFloat = 0
+                for i in 0 ..< pairCount - 1 {
+                    let child = children[i]
+                    pos += frame.width * CGFloat(child.cols) / CGFloat(totalCols)
+                    sv.setPosition(pos, ofDividerAt: i)
+                    pos += sv.dividerThickness
+                }
+            }
+            for i in 0 ..< pairCount {
+                let child = children[i]
                 let childW = frame.width * CGFloat(child.cols) / CGFloat(totalCols)
                 let childFrame = NSRect(x: 0, y: 0, width: childW, height: frame.height)
-                applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
+                applySplitPositions(view: arranged[i], node: child, frame: childFrame)
             }
         case .vsplit(let children):
             let totalRows = children.reduce(0) { $0 + $1.rows }
             guard totalRows > 0 else { return }
-            var pos: CGFloat = 0
-            for (i, child) in children.dropLast().enumerated() {
-                pos += frame.height * CGFloat(child.rows) / CGFloat(totalRows)
-                sv.setPosition(pos, ofDividerAt: i)
-                pos += sv.dividerThickness
+            let arranged = sv.arrangedSubviews
+            if arranged.count != children.count {
+                DebugLog.log("tmux", "applySplitPositions vsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
             }
-            for (i, child) in children.enumerated() {
+            let pairCount = min(children.count, arranged.count)
+            if pairCount > 1 {
+                var pos: CGFloat = 0
+                for i in 0 ..< pairCount - 1 {
+                    let child = children[i]
+                    pos += frame.height * CGFloat(child.rows) / CGFloat(totalRows)
+                    sv.setPosition(pos, ofDividerAt: i)
+                    pos += sv.dividerThickness
+                }
+            }
+            for i in 0 ..< pairCount {
+                let child = children[i]
                 let childH = frame.height * CGFloat(child.rows) / CGFloat(totalRows)
                 let childFrame = NSRect(x: 0, y: 0, width: frame.width, height: childH)
-                applySplitPositions(view: sv.arrangedSubviews[i], node: child, frame: childFrame)
+                applySplitPositions(view: arranged[i], node: child, frame: childFrame)
             }
         }
     }

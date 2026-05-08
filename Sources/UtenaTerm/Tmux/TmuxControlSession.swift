@@ -226,12 +226,20 @@ final class TmuxControlSession {
             guard fd >= 0 else { return }
             var bytes = Array(s.utf8)
             _ = Darwin.write(fd, &bytes, bytes.count)
+            Signpost.event("tmuxWrite", "bytes=\(bytes.count)")
         }
     }
 
     private func readLoop() {
         var lineBuffer = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
+        // Per-syscall coalescing: each Darwin.read may yield N complete lines.
+        // Instead of N main-queue hops we collect delegate calls into a single
+        // batch and dispatch once per drained syscall. Consecutive %output for
+        // the same pane is merged into one Data so the receiving pane does a
+        // single bridge.write FFI call instead of N. Wire order across panes
+        // and across event types is preserved.
+        var batch = DelegateCallBatcher()
         while true {
             let n = Darwin.read(masterFd, &buf, buf.count)
             if n < 0 { if errno == EINTR { continue } else { break } }
@@ -240,17 +248,113 @@ final class TmuxControlSession {
             while let nlIdx = lineBuffer.firstIndex(of: 0x0A) {
                 let lineBytes = lineBuffer[lineBuffer.startIndex..<nlIdx]
                 let trimmed = lineBytes.last == 0x0D ? lineBytes.dropLast() : lineBytes
-                // handleLine doesn't synchronously mutate lineBuffer, so we can
-                // hand it the slice directly and only remove the consumed range
-                // afterward — saves a per-line copy on a hot path.
-                handleLine(trimmed)
+                if let call = handleLine(trimmed) {
+                    batch.append(call)
+                }
                 lineBuffer.removeSubrange(lineBuffer.startIndex...nlIdx)
+            }
+            let calls = batch.drain()
+            if !calls.isEmpty {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let delegate = self.delegate else { return }
+                    for call in calls {
+                        Self.deliver(call, on: delegate, session: self)
+                    }
+                }
             }
         }
         failAllPending()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.sessionDidClose(self)
+        }
+    }
+
+    // MARK: - Coalescing helpers (visible to tests)
+
+    enum PendingDelegateCall: Equatable {
+        case output(paneID: String, data: Data)
+        case layoutChange(windowID: String, layout: String)
+        case windowAdd(windowID: String)
+        case windowClose(windowID: String)
+        case windowRenamed(windowID: String, newName: String)
+        case sessionChanged(sessionID: String, name: String)
+        case selectWindow(windowID: String)
+        case paneExited(paneID: String)
+    }
+
+    /// Per-syscall accumulator for delegate calls produced by handleLine.
+    ///
+    /// Consecutive `.output` for the same pane is merged into a single Data
+    /// buffer so the receiving pane does one `bridge.write` instead of N.
+    /// Any non-output event flushes the accumulator first, preserving wire
+    /// order between bytes and structural events (layout changes etc.).
+    ///
+    /// The pane id and the merge buffer live in separate fields rather than
+    /// in a single `(String, Data)?` tuple so that appending to `pendingData`
+    /// doesn't trip Swift's COW: in the tuple form the optional and the
+    /// local `var cur` both held strong refs to the buffer, forcing a full
+    /// copy on every merge (O(N²) total bytes copied across N consecutive
+    /// same-pane lines, which is exactly the paste/scroll path the
+    /// coalescer is meant to optimize).
+    struct DelegateCallBatcher {
+        private(set) var pending: [PendingDelegateCall] = []
+        private var pendingPaneID: String?
+        private var pendingData = Data()
+
+        mutating func append(_ call: PendingDelegateCall) {
+            if case .output(let paneID, let data) = call {
+                if pendingPaneID == paneID {
+                    pendingData.append(data)
+                } else {
+                    flush()
+                    pendingPaneID = paneID
+                    pendingData = data
+                }
+            } else {
+                flush()
+                pending.append(call)
+            }
+        }
+
+        mutating func flush() {
+            guard let id = pendingPaneID else { return }
+            pending.append(.output(paneID: id, data: pendingData))
+            pendingPaneID = nil
+            pendingData = Data()
+        }
+
+        /// Flush any accumulated output and return the full ordered batch,
+        /// resetting the batcher's storage for the next syscall.
+        mutating func drain() -> [PendingDelegateCall] {
+            flush()
+            defer { pending.removeAll(keepingCapacity: true) }
+            return pending
+        }
+    }
+
+    private static func deliver(
+        _ call: PendingDelegateCall,
+        on delegate: TmuxControlSessionDelegate,
+        session: TmuxControlSession
+    ) {
+        switch call {
+        case .output(let paneID, let data):
+            delegate.session(session, didReceiveOutput: data, forPane: paneID)
+        case .layoutChange(let windowID, let layout):
+            delegate.session(session, didLayoutChange: layout, forWindow: windowID)
+        case .windowAdd(let id):
+            delegate.session(session, didAddWindow: id)
+        case .windowClose(let id):
+            delegate.session(session, didCloseWindow: id)
+        case .windowRenamed(let id, let newName):
+            delegate.session(session, didRenameWindow: id, to: newName)
+        case .sessionChanged(let id, let name):
+            delegate.session(session, didChangeTo: id, name: name)
+        case .selectWindow(let id):
+            delegate.session(session, didSelectWindow: id)
+        case .paneExited(let id):
+            delegate.session(session, paneDidExit: id)
         }
     }
 
@@ -263,7 +367,12 @@ final class TmuxControlSession {
         static let dcsFinal: ClosedRange<UInt8> = 0x40 ... 0x7E
     }
 
-    private func handleLine(_ rawLine: Data) {
+    /// Parse one wire-line into either a deferred delegate call (returned) or
+    /// an inline state mutation (continuation completion / accumulator append).
+    /// Returning a value lets the read loop coalesce per-syscall main-queue
+    /// dispatches; continuations still resume immediately on the read thread
+    /// so awaiters aren't held up behind the next syscall.
+    private func handleLine(_ rawLine: Data) -> PendingDelegateCall? {
         // Strip tmux's DCS intro (`ESC P <params> <final 0x40-0x7E>`) at the
         // byte level so binary %output payloads further down survive intact.
         // NB: `bytes` is a Data slice — its indices are absolute (non-zero
@@ -281,7 +390,7 @@ final class TmuxControlSession {
                 bytes = bytes[(i + 1)...]
             }
         }
-        if bytes.isEmpty { return }
+        if bytes.isEmpty { return nil }
 
         // %output payloads MUST stay in bytes — decoding through Swift String
         // with a Latin-1 fallback expands every UTF-8 high byte whenever any
@@ -291,25 +400,23 @@ final class TmuxControlSession {
             let after = bytes.index(bytes.startIndex, offsetBy: Self.outputPrefix.count)
             guard let spaceIdx = bytes[after...].firstIndex(of: B.space),
                   let paneID = String(bytes: bytes[after..<spaceIdx], encoding: .ascii)
-            else { return }
+            else { return nil }
             let data = ControlLineParser.unescapeOctal(bytes[(spaceIdx + 1)...])
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didReceiveOutput: data, forPane: paneID)
-            }
-            return
+            Signpost.event("tmuxOutput", "pane=\(paneID) bytes=\(data.count)")
+            return .output(paneID: paneID, data: data)
         }
 
         // All other events are ASCII / simple UTF-8 names — String is fine.
         let line = String(bytes: bytes, encoding: .utf8)
             ?? String(bytes: bytes, encoding: .isoLatin1)
             ?? ""
-        if line.isEmpty { return }
+        if line.isEmpty { return nil }
         let event = parser.parse(line)
         switch event {
         case .beginBlock:
             outputAccumulator = ""
             inBlock = true
+            return nil
 
         case .endBlock:
             let output = outputAccumulator
@@ -317,6 +424,7 @@ final class TmuxControlSession {
             inBlock = false
             let cont = dequeueContinuation()
             cont?.resume(returning: output)
+            return nil
 
         case .errorBlock:
             let output = outputAccumulator
@@ -324,52 +432,33 @@ final class TmuxControlSession {
             inBlock = false
             let cont = dequeueContinuation()
             cont?.resume(throwing: TmuxCommandError.commandFailed(output))
+            return nil
 
         case .layoutChange(let windowID, let layout):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didLayoutChange: layout, forWindow: windowID)
-            }
+            return .layoutChange(windowID: windowID, layout: layout)
 
         case .windowAdd(let windowID):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didAddWindow: windowID)
-            }
+            return .windowAdd(windowID: windowID)
 
         case .windowClose(let windowID):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didCloseWindow: windowID)
-            }
+            return .windowClose(windowID: windowID)
 
         case .windowRenamed(let windowID, let newName):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didRenameWindow: windowID, to: newName)
-            }
+            return .windowRenamed(windowID: windowID, newName: newName)
 
         case .sessionChanged(let sessionID, let name):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didChangeTo: sessionID, name: name)
-            }
+            return .sessionChanged(sessionID: sessionID, name: name)
 
         case .sessionWindowChanged(_, let windowID):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, didSelectWindow: windowID)
-            }
+            return .selectWindow(windowID: windowID)
 
         case .paneExited(let paneID):
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.delegate?.session(self, paneDidExit: paneID)
-            }
+            return .paneExited(paneID: paneID)
 
         case .pasteBufferChanged, .unknown:
             // Accumulate plain lines that arrive between %begin and %end as command output.
             if inBlock { outputAccumulator += line + "\n" }
+            return nil
         }
     }
 

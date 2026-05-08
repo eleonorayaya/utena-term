@@ -21,15 +21,53 @@ final class MetalTerminalView: MTKView {
     let padX: CGFloat = 8
     let padY: CGFloat = 6
 
+    // Direct PTY panes: the view's bounds are authoritative. setFrameSize
+    // recomputes gridCols/gridRows and pushes them through bridge.resize +
+    // pty.resize via onResize, so the shell sees a grid that matches what
+    // we actually render.
+    //
+    // Tmux panes: tmux owns the layout. We get pane sizes via %layout-change
+    // and the rendered pane bounds may not divide cleanly into that cell
+    // count (per-pane padding + NSSplitView divider eat ~2 cols + a row).
+    // If the view recomputes from bounds and overrides tmux's cols/rows,
+    // the shell (whose SIGWINCH came from tmux) and our VT bridge disagree
+    // by ~2 cols per pane and TUI apps wrap a column or two early. Setting
+    // this to false makes setFrameSize / viewDidChangeBackingProperties
+    // pass through cell-pixel metrics only, preserving the cols/rows the
+    // owner cached via setOwnerGridSize.
+    var viewDrivesGridSize: Bool = true
+    private var ownerCols: UInt16 = 0
+    private var ownerRows: UInt16 = 0
+
+    /// Called by the owner (TmuxPane) whenever tmux hands it new pane
+    /// dimensions. Caches them so subsequent frame / backing-scale changes
+    /// can refresh cell-pixel metrics without trampling tmux's grid size.
+    func setOwnerGridSize(cols: UInt16, rows: UInt16) {
+        ownerCols = cols
+        ownerRows = rows
+    }
+
     override init(frame: NSRect, device: MTLDevice?) {
         font = CTFontCreateWithName("MesloLGS Nerd Font Mono" as CFString, 13, nil)
         super.init(frame: frame, device: device)
         computeCellMetrics()
         isPaused = true
         enableSetNeedsDisplay = true
+        // 120fps cap (vs default 60) halves the worst-case wait between
+        // setNeedsDisplay and the next eligible draw on a ProMotion display.
+        // No effect on non-ProMotion panels; the on-demand draw model still
+        // means we only render when bytes arrive.
+        preferredFramesPerSecond = 120
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        (layer as? CAMetalLayer)?.isOpaque = false
+        if let metalLayer = layer as? CAMetalLayer {
+            metalLayer.isOpaque = false
+            // Default is 3; dropping to 2 shaves one frame from the present
+            // pipeline depth. Trade is sustained-throughput headroom under
+            // heavy continuous output, which is fine for an interactive
+            // terminal where echo latency dominates perceived quality.
+            metalLayer.maximumDrawableCount = 2
+        }
     }
 
     required init(coder: NSCoder) { fatalError() }
@@ -58,10 +96,18 @@ final class MetalTerminalView: MTKView {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
-    func makeSizeReport() -> GhosttySizeReportSize {
+    /// Cell size in device pixels, snapped + clamped to ≥ 1. Required by
+    /// every bridge.resize and PTY-resize path; centralized so the rounding
+    /// rule stays consistent across resize callbacks.
+    func cellPixelMetrics() -> (cw: UInt32, ch: UInt32) {
         let scale = backingScale
         let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
         let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        return (cwPx, chPx)
+    }
+
+    func makeSizeReport() -> GhosttySizeReportSize {
+        let (cwPx, chPx) = cellPixelMetrics()
         return GhosttySizeReportSize(
             rows: gridRows,
             columns: gridCols,
@@ -78,10 +124,11 @@ final class MetalTerminalView: MTKView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         computeCellMetrics()
-        let scale = backingScale
-        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
-        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
-        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        let (cwPx, chPx) = cellPixelMetrics()
+        let (cols, rows) = effectiveGridSize()
+        if cols > 0 && rows > 0 {
+            bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        }
         renderer?.invalidateGlyphState()
         setNeedsDisplay(bounds)
     }
@@ -89,16 +136,32 @@ final class MetalTerminalView: MTKView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
-        let scale = backingScale
-        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
-        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
-        bridge?.resize(cols: gridCols, rows: gridRows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        let (cwPx, chPx) = cellPixelMetrics()
+        let (cols, rows) = effectiveGridSize()
+        if cols > 0 && rows > 0 {
+            bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
+        }
         let pxWInt: Int = max(1, Int(newSize.width * backingScale))
         let pxHInt: Int = max(1, Int(newSize.height * backingScale))
         let pxW = UInt16(min(Int(UInt16.max), pxWInt))
         let pxH = UInt16(min(Int(UInt16.max), pxHInt))
-        onResize?(gridCols, gridRows, pxW, pxH)
+        // onResize is for direct-PTY panes that drive pty.resize from the
+        // view's bounds. Tmux panes leave it nil (layout is tmux-driven).
+        if viewDrivesGridSize {
+            onResize?(gridCols, gridRows, pxW, pxH)
+        }
         setNeedsDisplay(bounds)
+    }
+
+    /// View bounds when this pane owns its size; the owner's cached cols/rows
+    /// otherwise. Returns (0, 0) only briefly during init for tmux panes
+    /// before the first %layout-change arrives — callers must skip the
+    /// bridge.resize in that case.
+    private func effectiveGridSize() -> (cols: UInt16, rows: UInt16) {
+        if viewDrivesGridSize {
+            return (gridCols, gridRows)
+        }
+        return (ownerCols, ownerRows)
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -113,6 +176,7 @@ final class MetalTerminalView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        Signpost.event("keyDown")
         // ⌘V → paste from system pasteboard. Without this, Cmd-V is forwarded
         // as a literal "v" press so apps inside the terminal never see paste.
         if event.modifierFlags.contains(.command),
