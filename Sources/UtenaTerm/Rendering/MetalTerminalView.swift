@@ -96,10 +96,18 @@ final class MetalTerminalView: MTKView {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
-    func makeSizeReport() -> GhosttySizeReportSize {
+    /// Cell size in device pixels, snapped + clamped to ≥ 1. Required by
+    /// every bridge.resize and PTY-resize path; centralized so the rounding
+    /// rule stays consistent across resize callbacks.
+    func cellPixelMetrics() -> (cw: UInt32, ch: UInt32) {
         let scale = backingScale
         let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
         let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        return (cwPx, chPx)
+    }
+
+    func makeSizeReport() -> GhosttySizeReportSize {
+        let (cwPx, chPx) = cellPixelMetrics()
         return GhosttySizeReportSize(
             rows: gridRows,
             columns: gridCols,
@@ -116,9 +124,7 @@ final class MetalTerminalView: MTKView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         computeCellMetrics()
-        let scale = backingScale
-        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
-        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        let (cwPx, chPx) = cellPixelMetrics()
         let (cols, rows) = effectiveGridSize()
         if cols > 0 && rows > 0 {
             bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
@@ -130,9 +136,7 @@ final class MetalTerminalView: MTKView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         renderer?.resize(width: Int(newSize.width), height: Int(newSize.height))
-        let scale = backingScale
-        let cwPx = UInt32(max(1, Int(round(cellWidth * scale))))
-        let chPx = UInt32(max(1, Int(round(cellHeight * scale))))
+        let (cwPx, chPx) = cellPixelMetrics()
         let (cols, rows) = effectiveGridSize()
         if cols > 0 && rows > 0 {
             bridge?.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)

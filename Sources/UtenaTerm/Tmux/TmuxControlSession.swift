@@ -239,8 +239,7 @@ final class TmuxControlSession {
         // the same pane is merged into one Data so the receiving pane does a
         // single bridge.write FFI call instead of N. Wire order across panes
         // and across event types is preserved.
-        var pending: [PendingDelegateCall] = []
-        var pendingOutput: (paneID: String, data: Data)? = nil
+        var batch = DelegateCallBatcher()
         while true {
             let n = Darwin.read(masterFd, &buf, buf.count)
             if n < 0 { if errno == EINTR { continue } else { break } }
@@ -249,18 +248,13 @@ final class TmuxControlSession {
             while let nlIdx = lineBuffer.firstIndex(of: 0x0A) {
                 let lineBytes = lineBuffer[lineBuffer.startIndex..<nlIdx]
                 let trimmed = lineBytes.last == 0x0D ? lineBytes.dropLast() : lineBytes
-                // handleLine doesn't synchronously mutate lineBuffer, so we can
-                // hand it the slice directly and only remove the consumed range
-                // afterward — saves a per-line copy on a hot path.
                 if let call = handleLine(trimmed) {
-                    Self.appendCall(call, pending: &pending, pendingOutput: &pendingOutput)
+                    batch.append(call)
                 }
                 lineBuffer.removeSubrange(lineBuffer.startIndex...nlIdx)
             }
-            Self.flushPendingOutput(pending: &pending, pendingOutput: &pendingOutput)
-            if !pending.isEmpty {
-                let calls = pending
-                pending.removeAll(keepingCapacity: true)
+            let calls = batch.drain()
+            if !calls.isEmpty {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let delegate = self.delegate else { return }
                     for call in calls {
@@ -289,35 +283,53 @@ final class TmuxControlSession {
         case paneExited(paneID: String)
     }
 
-    /// Append one parsed event into the per-syscall batch.
-    /// Consecutive `.output` for the same pane is merged into one Data buffer;
-    /// any other event flushes the accumulator first so wire order is preserved.
-    static func appendCall(
-        _ call: PendingDelegateCall,
-        pending: inout [PendingDelegateCall],
-        pendingOutput: inout (paneID: String, data: Data)?
-    ) {
-        if case .output(let paneID, let data) = call {
-            if var cur = pendingOutput, cur.paneID == paneID {
-                cur.data.append(data)
-                pendingOutput = cur
-            } else {
-                flushPendingOutput(pending: &pending, pendingOutput: &pendingOutput)
-                pendingOutput = (paneID, data)
-            }
-        } else {
-            flushPendingOutput(pending: &pending, pendingOutput: &pendingOutput)
-            pending.append(call)
-        }
-    }
+    /// Per-syscall accumulator for delegate calls produced by handleLine.
+    ///
+    /// Consecutive `.output` for the same pane is merged into a single Data
+    /// buffer so the receiving pane does one `bridge.write` instead of N.
+    /// Any non-output event flushes the accumulator first, preserving wire
+    /// order between bytes and structural events (layout changes etc.).
+    ///
+    /// The pane id and the merge buffer live in separate fields rather than
+    /// in a single `(String, Data)?` tuple so that appending to `pendingData`
+    /// doesn't trip Swift's COW: in the tuple form the optional and the
+    /// local `var cur` both held strong refs to the buffer, forcing a full
+    /// copy on every merge (O(N²) total bytes copied across N consecutive
+    /// same-pane lines, which is exactly the paste/scroll path the
+    /// coalescer is meant to optimize).
+    struct DelegateCallBatcher {
+        private(set) var pending: [PendingDelegateCall] = []
+        private var pendingPaneID: String?
+        private var pendingData = Data()
 
-    static func flushPendingOutput(
-        pending: inout [PendingDelegateCall],
-        pendingOutput: inout (paneID: String, data: Data)?
-    ) {
-        if let cur = pendingOutput {
-            pending.append(.output(paneID: cur.paneID, data: cur.data))
-            pendingOutput = nil
+        mutating func append(_ call: PendingDelegateCall) {
+            if case .output(let paneID, let data) = call {
+                if pendingPaneID == paneID {
+                    pendingData.append(data)
+                } else {
+                    flush()
+                    pendingPaneID = paneID
+                    pendingData = data
+                }
+            } else {
+                flush()
+                pending.append(call)
+            }
+        }
+
+        mutating func flush() {
+            guard let id = pendingPaneID else { return }
+            pending.append(.output(paneID: id, data: pendingData))
+            pendingPaneID = nil
+            pendingData = Data()
+        }
+
+        /// Flush any accumulated output and return the full ordered batch,
+        /// resetting the batcher's storage for the next syscall.
+        mutating func drain() -> [PendingDelegateCall] {
+            flush()
+            defer { pending.removeAll(keepingCapacity: true) }
+            return pending
         }
     }
 

@@ -39,11 +39,8 @@ final class TmuxPane {
     func resize(cols: UInt16, rows: UInt16) {
         view.setOwnerGridSize(cols: cols, rows: rows)
         // Carry cell-pixel metrics through so hi-DPI rendering stays sharp;
-        // these are the same values setFrameSize would have used and are a
-        // no-op (default 0) only in the unrealistic pre-window state.
-        let scale = view.backingScale
-        let cwPx = UInt32(max(1, Int(round(view.cellWidth * scale))))
-        let chPx = UInt32(max(1, Int(round(view.cellHeight * scale))))
+        // these are the same values setFrameSize would have used.
+        let (cwPx, chPx) = view.cellPixelMetrics()
         bridge.resize(cols: cols, rows: rows, cellWidthPx: cwPx, cellHeightPx: chPx)
     }
 }

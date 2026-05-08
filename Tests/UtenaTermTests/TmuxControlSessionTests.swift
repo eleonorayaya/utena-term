@@ -14,13 +14,11 @@ final class TmuxControlSessionTests: XCTestCase {
     typealias Call = TmuxControlSession.PendingDelegateCall
 
     private func drain(_ events: [Call]) -> [Call] {
-        var pending: [Call] = []
-        var pendingOutput: (paneID: String, data: Data)? = nil
+        var batch = TmuxControlSession.DelegateCallBatcher()
         for ev in events {
-            TmuxControlSession.appendCall(ev, pending: &pending, pendingOutput: &pendingOutput)
+            batch.append(ev)
         }
-        TmuxControlSession.flushPendingOutput(pending: &pending, pendingOutput: &pendingOutput)
-        return pending
+        return batch.drain()
     }
 
     func testConsecutiveOutputForSamePaneIsConcatenated() {

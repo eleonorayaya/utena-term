@@ -265,12 +265,17 @@ final class TmuxWindowController: NSWindowController {
                 DebugLog.log("tmux", "applySplitPositions hsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
             }
             let pairCount = min(children.count, arranged.count)
-            var pos: CGFloat = 0
-            for i in 0 ..< (pairCount - (pairCount > 0 ? 1 : 0)) {
-                let child = children[i]
-                pos += frame.width * CGFloat(child.cols) / CGFloat(totalCols)
-                sv.setPosition(pos, ofDividerAt: i)
-                pos += sv.dividerThickness
+            // N panes have N-1 dividers; the position loop is empty (and
+            // would underflow `pairCount - 1`) when arrangedSubviews is
+            // mismatched down to 0 or 1 entry, so guard explicitly.
+            if pairCount > 1 {
+                var pos: CGFloat = 0
+                for i in 0 ..< pairCount - 1 {
+                    let child = children[i]
+                    pos += frame.width * CGFloat(child.cols) / CGFloat(totalCols)
+                    sv.setPosition(pos, ofDividerAt: i)
+                    pos += sv.dividerThickness
+                }
             }
             for i in 0 ..< pairCount {
                 let child = children[i]
@@ -286,12 +291,14 @@ final class TmuxWindowController: NSWindowController {
                 DebugLog.log("tmux", "applySplitPositions vsplit MISMATCH children=\(children.count) arranged=\(arranged.count) leafIDs=\(node.leafIDs())")
             }
             let pairCount = min(children.count, arranged.count)
-            var pos: CGFloat = 0
-            for i in 0 ..< (pairCount - (pairCount > 0 ? 1 : 0)) {
-                let child = children[i]
-                pos += frame.height * CGFloat(child.rows) / CGFloat(totalRows)
-                sv.setPosition(pos, ofDividerAt: i)
-                pos += sv.dividerThickness
+            if pairCount > 1 {
+                var pos: CGFloat = 0
+                for i in 0 ..< pairCount - 1 {
+                    let child = children[i]
+                    pos += frame.height * CGFloat(child.rows) / CGFloat(totalRows)
+                    sv.setPosition(pos, ofDividerAt: i)
+                    pos += sv.dividerThickness
+                }
             }
             for i in 0 ..< pairCount {
                 let child = children[i]
