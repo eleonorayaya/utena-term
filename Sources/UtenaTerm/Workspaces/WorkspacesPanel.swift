@@ -4,7 +4,7 @@ protocol WorkspacesKeyHandling: AnyObject {
     func workspacesKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel — extends OverlayPanel.
+/// Floating overlay panel — extends OverlayPanel.
 final class WorkspacesPanel: OverlayPanel {
     weak var keyHandler: WorkspacesKeyHandling?
 

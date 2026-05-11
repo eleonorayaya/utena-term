@@ -1,6 +1,6 @@
 import AppKit
 
-/// Base class for floating, non-activating overlay panels used across the app.
+/// Base class for floating overlay panels used across the app.
 /// Provides standardized appearance (vibrant dark HUD background, rounded corners, shadow)
 /// and key event routing through a handler protocol.
 open class OverlayPanel: NSPanel {
@@ -11,7 +11,7 @@ open class OverlayPanel: NSPanel {
     public convenience init(size: NSSize) {
         self.init(
             contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -22,7 +22,7 @@ open class OverlayPanel: NSPanel {
     public convenience init(contentRect: NSRect) {
         self.init(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

@@ -4,7 +4,7 @@ protocol PullRequestsKeyHandling: AnyObject {
     func pullRequestsKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel for pull requests — extends OverlayPanel.
+/// Floating overlay panel for pull requests — extends OverlayPanel.
 final class PullRequestsPanel: OverlayPanel {
     weak var keyHandler: PullRequestsKeyHandling?
 

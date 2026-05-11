@@ -4,7 +4,7 @@ protocol HelpKeyHandling: AnyObject {
     func helpKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel — extends OverlayPanel.
+/// Floating overlay panel — extends OverlayPanel.
 final class HelpPanel: OverlayPanel {
     weak var keyHandler: HelpKeyHandling?
 

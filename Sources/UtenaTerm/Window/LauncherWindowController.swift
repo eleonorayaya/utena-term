@@ -114,12 +114,14 @@ extension LauncherWindowController: SwitcherDelegate {
 
     private func openTmuxAndClose(launch: TmuxLaunch) {
         guard let app = NSApp.delegate as? AppDelegate else { return }
-        if let controller = TmuxWindowController(launch: launch) {
-            app.adoptTmuxController(controller)
-            controller.showWindow(nil)
+        guard let controller = TmuxWindowController(launch: launch) else { return }
+        app.adoptTmuxController(controller)
+        controller.showWindow(nil)
+        // Defer to next tick: avoids tearing down the parent panel mid-event.
+        // controller is retained by AppDelegate.tmuxControllers via adoptTmuxController.
+        DispatchQueue.main.async { [weak self] in
+            controller.window?.makeKeyAndOrderFront(nil)
+            self?.close()
         }
-        // Close the launcher window (and itself) on next tick to avoid
-        // closing the parent of a dismissed panel mid-event.
-        DispatchQueue.main.async { [weak self] in self?.close() }
     }
 }
