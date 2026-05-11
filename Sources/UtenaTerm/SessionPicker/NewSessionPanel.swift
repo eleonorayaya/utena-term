@@ -4,7 +4,7 @@ protocol NewSessionKeyHandling: AnyObject {
     func newSessionKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel for the new-session multi-step flow.
+/// Floating overlay panel for the new-session multi-step flow.
 /// Uses the translucent overlay-panel chrome (HUD blur, 20pt corners).
 final class NewSessionPanel: OverlayPanel {
     weak var keyHandler: NewSessionKeyHandling?

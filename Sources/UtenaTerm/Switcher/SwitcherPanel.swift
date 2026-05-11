@@ -4,9 +4,8 @@ protocol SwitcherKeyHandling: AnyObject {
     func switcherKeyDown(_ event: NSEvent) -> Bool
 }
 
-/// Floating, non-activating panel — keeps the terminal as the key window
-/// underneath while the switcher is showing. We override `canBecomeKey`
-/// to true so that we still receive keyDown / firstResponder events.
+/// Floating overlay panel for session switching. Overrides `canBecomeKey`
+/// so it receives keyDown / firstResponder events.
 final class SwitcherPanel: OverlayPanel {
     weak var keyHandler: SwitcherKeyHandling?
 
