@@ -158,7 +158,8 @@ final class TmuxControlSession {
                 while i < data.endIndex, !Self.isControlByte(data[i]) {
                     i += 1
                 }
-                rawWrite("send-keys -t \(paneID) -l \(Self.tmuxQuoteBytes(data[runStart..<i]))\n")
+                let quoted = Self.tmuxQuoteBytes(data[runStart..<i])
+                rawWrite("send-keys -t \(paneID) -l \(quoted)\n")
             }
         }
     }

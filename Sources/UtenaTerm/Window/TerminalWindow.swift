@@ -55,6 +55,17 @@ final class TerminalWindow: NSWindow {
                 case KeyMap.Key.w:              splitDelegate?.terminalWindowClosePane(); return
                 default: break
                 }
+                // No window-level binding matched. Walk performKeyEquivalent from
+                // the first responder through the view hierarchy only (stop before
+                // NSWindow/NSApp) — NSWindow.performKeyEquivalent traverses from the
+                // content view, which can miss the first responder when NSTabView
+                // hasn't wired a newly-selected tab's view into its subview hierarchy
+                // yet (race during initial attach).
+                var responder: NSResponder? = firstResponder
+                while let view = responder as? NSView {
+                    if view.performKeyEquivalent(with: event) { return }
+                    responder = view.nextResponder
+                }
             }
 
             // 2. Tmux-style prefix: ⌃b enters prefix mode; the next keypress

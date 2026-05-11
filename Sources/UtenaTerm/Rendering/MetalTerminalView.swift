@@ -175,21 +175,47 @@ final class MetalTerminalView: MTKView {
         super.mouseDown(with: event)
     }
 
+    // CMD+key events are dispatched via performKeyEquivalent, not keyDown.
+    // We intercept them here to forward as kitty keyboard protocol sequences.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.modifierFlags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        // ⌘V → paste from system pasteboard.
+        if event.charactersIgnoringModifiers == "v" {
+            paste(self)
+            return true
+        }
+        // All other ⌘+key → encode as kitty keyboard protocol and forward.
+        // The ghostty encoder has kitty mode force-disabled (no legacy VT encoding
+        // exists for the Super modifier), so we produce the sequence directly.
+        if let bytes = kittyEncode(event) {
+            onInput?(bytes)
+        }
+        return true
+    }
+
     override func keyDown(with event: NSEvent) {
         Signpost.event("keyDown")
-        // ⌘V → paste from system pasteboard. Without this, Cmd-V is forwarded
-        // as a literal "v" press so apps inside the terminal never see paste.
-        if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers == "v" {
-            paste(self)
-            return
-        }
         let key = KeyMap.ghosttyKey(for: event.keyCode)
         let mods = KeyMap.ghosttyMods(for: event.modifierFlags)
         let text = encoderText(for: event)
         if let bytes = bridge.encode(key: key, mods: mods, action: GHOSTTY_KEY_ACTION_PRESS, utf8text: text) {
             onInput?(bytes)
         }
+    }
+
+    // Encodes a key event as a kitty keyboard protocol sequence (CSI u).
+    // Used for CMD+key combos the ghostty encoder can't represent in legacy VT.
+    private func kittyEncode(_ event: NSEvent) -> Data? {
+        guard let chars = event.charactersIgnoringModifiers,
+              let codepoint = chars.unicodeScalars.first?.value else { return nil }
+        var modCode: UInt32 = 1  // kitty modifier base
+        if event.modifierFlags.contains(.shift)   { modCode += 2 }
+        if event.modifierFlags.contains(.option)  { modCode += 4 }
+        if event.modifierFlags.contains(.command) { modCode += 8 }
+        if event.modifierFlags.contains(.control) { modCode += 16 }
+        return "\u{1B}[\(codepoint);\(modCode)u".data(using: .utf8)
     }
 
     /// Returns the utf8 text the ghostty encoder expects for this key event,

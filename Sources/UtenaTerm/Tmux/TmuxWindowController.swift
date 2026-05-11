@@ -67,15 +67,9 @@ final class TmuxWindowController: NSWindowController {
         tabView = tv
         self.chrome = chrome
         chrome.delegate = self
+        win.delegate = self
         win.splitDelegate = self
         controlSession.delegate = self
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidResize(_:)),
-            name: NSWindow.didResizeNotification,
-            object: win
-        )
 
         guard let tmuxPath = TmuxControlSession.findTmux() else {
             let alert = NSAlert()
@@ -356,7 +350,21 @@ final class TmuxWindowController: NSWindowController {
         focusedPane?.view.isActive = false
         focusedPane = pane
         pane.view.isActive = true
+        // Select the NSTabViewItem that contains this pane so its view is in
+        // the live NSTabView subview hierarchy. Without this, NSApp's
+        // performKeyEquivalent traversal (content view → subviews) misses
+        // MetalTerminalView and CMD+key events fall through to keyDown instead.
+        if let windowID = windowPanes.first(where: { $0.value.contains(pane.paneID) })?.key,
+           let item = tabItems[windowID],
+           tabView.selectedTabViewItem !== item {
+            tabView.selectTabViewItem(item)
+            currentWindowID = windowID
+        }
         window?.makeFirstResponder(pane.view)
+        DispatchQueue.main.async { [weak self, weak pane] in
+            guard let self, let pane, self.focusedPane === pane else { return }
+            self.window?.makeFirstResponder(pane.view)
+        }
     }
 
     private func sendRefreshClient() {
@@ -375,7 +383,22 @@ final class TmuxWindowController: NSWindowController {
         controlSession.refreshClient(cols: cols, rows: rows)
     }
 
-    @objc private func windowDidResize(_ notification: Notification) {
+}
+
+// MARK: - NSWindowDelegate
+
+extension TmuxWindowController: NSWindowDelegate {
+    // Re-assert first responder when the window regains key focus (e.g. after
+    // clicking away to another app and back). Without this, CMD+key events go
+    // to performKeyEquivalent on whatever view macOS left as first responder,
+    // which may not be the terminal view.
+    func windowDidBecomeKey(_ notification: Notification) {
+        if let pane = focusedPane ?? panes.values.first {
+            window?.makeFirstResponder(pane.view)
+        }
+    }
+
+    func windowDidResize(_ notification: Notification) {
         sendRefreshClient()
     }
 }
